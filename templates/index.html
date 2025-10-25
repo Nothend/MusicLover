@@ -672,7 +672,7 @@
                     
                     <div class="payment-qr-container">
                         <img id="payment-qr-image" class="payment-qr-image" 
-                             src="{{ url_for('static', filename='alipay.jpg') }}" alt="支付宝收款码">
+                             src="{{ url_for('static', filename='alipay.png') }}" alt="支付宝收款码">
                     </div>
                     <p style="text-align: center; font-size: 0.9rem; color: #666;">
                         感谢您的支持，您的捐赠将帮助我们持续改进服务
@@ -1011,10 +1011,10 @@
         
         paymentMethod.addEventListener('change', () => {
             if (paymentMethod.value === 'alipay') {
-                paymentQrImage.src = "{{ url_for('static', filename='alipay.jpg') }}";
+                paymentQrImage.src = "{{ url_for('static', filename='alipay.png') }}";
                 paymentQrImage.alt = '支付宝收款码';
             } else {
-                paymentQrImage.src = "{{ url_for('static', filename='wechat.jpg') }}";
+                paymentQrImage.src = "{{ url_for('static', filename='wechat.png') }}";
                 paymentQrImage.alt = '微信收款码';
             }
         });
