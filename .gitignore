@@ -1,0 +1,19 @@
+
+
+#忽略Python 等生成文件
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+#忽略虚拟环境目录和下载、日志等目录
+.idea
+.vscode
+
+venv
+.venv
+downloads/
+logs/
+
+#忽略自用config.yaml
+config.yaml

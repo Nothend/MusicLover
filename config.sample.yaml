@@ -1,0 +1,40 @@
+# 网易云配置
+cookie: 'MUSIC_U=XXX;os=pc;appver=8.9.75;'
+
+# 日志级别
+LEVEL: "INFO"
+
+
+# 下载音乐的品质
+#     """音质等级枚举"""
+#     "standard"    # 标准
+#     "exhigh"      # 极高
+#     "lossless"    # 无损
+#     "hires"       # Hi-Res
+#     "sky"         # 沉浸环绕声
+#     "jyeffect"    # 高清环绕声
+#     "jymaster"    # 超清母带
+QUALITY_LEVEL: "lossless"
+
+# Navidrome配置
+NAVIDROME:
+  NAVIDROME_HOST: "http://192.168.0.6:4533"
+  NAVIDROME_USER: "admin"
+  NAVIDROME_PASS: "admin"
+  # 是否开启 Navidrome 检查
+  USE_NAVIDROME: false
+
+# music-tag-web
+mysql:
+  # 是否检查music-tag-web使用的MySQL数据库
+  USE_MYSQL: false
+  # 服务器IP地址
+  host: 192.168.0.6
+  # 端口号（默认MySQL端口为3306）
+  port: 3306
+  # 数据库用户名
+  user: root
+  # 数据库密码
+  password: admin
+  # 数据库名称
+  database: music_tag

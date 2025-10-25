@@ -1,0 +1,15 @@
+
+
+version: '3.8'
+services:
+  netease-music-sync:
+    image: leonautilus/musiclover:latest
+    container_name: musiclover
+    restart: always
+    ports:
+      - "5151:5151"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro  # 配置文件映射（只读）
+      - ./logs:/app/logs  # 日志目录映射
+    environment:
+      - TZ=Asia/Shanghai  # 设置时区
