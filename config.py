@@ -1,10 +1,26 @@
+import os
+from pathlib import Path
 import yaml
 import logging
 from typing import Dict, Any, Optional
 
 class Config:
-    def __init__(self, config_path: str = "config.yaml"):
-        self.config_path = config_path
+    def __init__(self, config_path: str | None = None):
+        if config_path:
+            self.config_path = Path(config_path)
+        elif os.getenv("CONFIG_PATH"):
+            self.config_path = Path(os.getenv("CONFIG_PATH"))
+        else:
+            # __file__ 在 src/config.py，这里取上一级作为项目根
+            self.config_path = Path(__file__).resolve().parent.parent / "config.yaml"
+
+        # 备用：如果上面的路径不存在，再尝试 cwd 下同名文件
+        if not self.config_path.exists():
+            alt = Path.cwd() / self.config_path.name
+            if alt.exists():
+                self.config_path = alt
+
+        logging.info(f"使用配置文件: {self.config_path} (cwd={Path.cwd()})")
         self.config: Dict[str, Any] = {}
         self.load_config()
         # 定义所有参数的默认值（与用户提供的默认值保持一致）

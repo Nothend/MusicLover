@@ -5,6 +5,7 @@ __pycache__
 *.pyc
 *.pyo
 *.pyd
+*.log
 
 #忽略虚拟环境目录和下载、日志等目录
 .idea

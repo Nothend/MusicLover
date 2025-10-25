@@ -1,3 +1,21 @@
 LICENSE
 README.md
 .gitignore
+*.log
+# 虚拟环境
+venv/
+env/
+
+# 本地日志和下载文件（通过volume映射，无需打包）
+logs/
+downloads/
+.vscode/
+
+# 其他临时文件
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+# 排除根目录的config.yaml
+config.yaml
