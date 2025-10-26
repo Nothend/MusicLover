@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>高品质音乐无损解析</title>
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
-    <!-- 仅保留必要的功能依赖 -->
     <script src="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/aplayer/1.10.1/APlayer.min.js"></script>
     <link rel="stylesheet" href="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/aplayer/1.10.1/APlayer.min.css">
     
@@ -295,58 +294,6 @@
             cursor: not-allowed;
         }
         
-        /* 批量下载进度条 */
-        .batch-progress {
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            right: 20px;
-            background: white;
-            padding: 15px;
-            border-radius: 6px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            border: 1px solid #e0e0e0;
-            display: none;
-            z-index: 1000;
-        }
-        
-        .progress-header {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 10px;
-        }
-        
-        .progress-title {
-            font-weight: bold;
-        }
-        
-        .cancel-btn {
-            color: #f44336;
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 0.9rem;
-        }
-        
-        .progress-bar-container {
-            height: 8px;
-            background: #eee;
-            border-radius: 4px;
-            margin: 10px 0;
-        }
-        
-        .progress-bar {
-            height: 100%;
-            background: #4caf50;
-            border-radius: 4px;
-            width: 0%;
-        }
-        
-        .progress-info {
-            font-size: 0.8rem;
-            color: #666;
-        }
-        
         /* 侧边栏设置 */
         .settings-sidebar {
             position: fixed;
@@ -525,10 +472,23 @@
             margin-right: 5px;
         }
         
-        /* 进度条样式 */
+        /* 进度条样式 - 仅保留单首歌曲进度条 */
         .song-progress {
             margin-top: 10px;
             display: none;
+        }
+        
+        .progress-bar-container {
+            height: 6px;
+            background-color: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background-color: #4caf50;
+            transition: width 0.3s ease;
         }
         
         /* 加载动画 */
@@ -569,14 +529,12 @@
             padding: 10px;
             border: 1px dashed #ddd;
             border-radius: 4px;
-            /* 二维码容器固定大小 */
             width: 220px;
             margin-left: auto;
             margin-right: auto;
         }
         
         .qr-code-image {
-            /* 二维码固定大小 */
             width: 200px;
             height: 200px;
             object-fit: contain;
@@ -587,14 +545,12 @@
         .payment-qr-container {
             text-align: center;
             margin: 15px 0;
-            /* 支付码容器固定大小 */
             width: 220px;
             margin-left: auto;
             margin-right: auto;
         }
         
         .payment-qr-image {
-            /* 支付码固定大小 */
             width: 200px;
             height: 200px;
             object-fit: contain;
@@ -608,19 +564,6 @@
     </style>
 </head>
 <body>
-    <!-- 批量下载进度条容器 -->
-    <div class="batch-progress" id="batchProgressContainer">
-        <div class="progress-header">
-            <h4 class="progress-title">批量下载进度</h4>
-            <button id="cancelBatchDownload" class="cancel-btn">取消下载</button>
-        </div>
-        <div class="progress-info" id="batchProgressText">准备下载... (0/0)</div>
-        <div class="progress-bar-container">
-            <div class="progress-bar" id="batchProgressBar" role="progressbar" style="width: 0%"></div>
-        </div>
-        <div class="progress-info" id="currentDownloadInfo">等待开始...</div>
-    </div>
-
     <!-- 右侧设置侧边栏 -->
     <div id="settings-sidebar" class="settings-sidebar">
         <div class="sidebar-header">
@@ -917,9 +860,9 @@
         let currentPage = 1;
         const pageSize = 30;
         let isBatchDownloading = false;
-        let batchDownloadCanceled = false;
         let isFromPlaylistParse = false; // 标记是否从歌单解析进入单首歌曲视图
         let countdownInterval = null;
+        const activeXhrs = new Map(); // 存储活跃请求的Map
         
         // 侧边栏控制
         const settingsSidebar = document.getElementById('settings-sidebar');
@@ -1146,11 +1089,6 @@
          */
         function downloadSingleSong(songId, quality, songName, songItemEl) {
             return new Promise((resolve) => {
-                if (batchDownloadCanceled) {
-                    resolve(false);
-                    return;
-                }
-
                 // 显示歌曲级进度条
                 const progressContainer = songItemEl.querySelector('.song-progress');
                 progressContainer.style.display = 'block';
@@ -1167,9 +1105,6 @@
                 xhr.open('POST', '/Download', true); // 保持与后端接口一致（区分大小写时用'/Download'）
                 xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
                 xhr.responseType = 'blob'; // 内存流返回的是blob类型
-                
-                // 更新当前下载信息
-                document.getElementById('currentDownloadInfo').textContent = `正在下载: ${songName}`;
                 
                 // 监听进度事件
                 xhr.addEventListener('progress', function(e) {
@@ -1243,14 +1178,10 @@
         /**
          * 批量下载本页歌曲
          */
-        /**
-         * 批量下载本页歌曲（异步并发版）
-         * 支持同时下载多个任务，控制最大并发数，保留原有UI逻辑
-         */
         async function batchDownloadCurrentPage() {
             if (isBatchDownloading || !playlistData) return;
             
-            // 获取当前页歌曲（原有逻辑不变）
+            // 获取当前页歌曲
             const pl = playlistData.data.playlist;
             const allSongs = pl.songs || pl.tracks || [];
             const startIndex = (currentPage - 1) * pageSize;
@@ -1262,27 +1193,17 @@
                 return;
             }
             
-            // 配置并发参数（可根据需求调整，建议3-5）
+            // 配置并发参数
             const MAX_CONCURRENT = 3; // 最大同时下载数
             let completedCount = 0; // 已完成的任务数（成功+失败）
             let successCount = 0;   // 成功的任务数
             const total = currentSongs.length;
             
-            // 存储所有正在进行的请求（用于取消操作）
-            const activeXhrs = new Map(); // key: songId, value: xhr实例
+            // 清空活跃请求列表
+            activeXhrs.clear();
             
-            // 初始化下载状态（原有UI逻辑不变）
+            // 初始化下载状态
             isBatchDownloading = true;
-            batchDownloadCanceled = false;
-            const batchProgressContainer = document.getElementById('batchProgressContainer');
-            const batchProgressBar = document.getElementById('batchProgressBar');
-            const batchProgressText = document.getElementById('batchProgressText');
-            batchProgressContainer.style.display = 'block';
-            batchProgressBar.style.width = '0%';
-            batchProgressText.textContent = `准备下载... (0/${total})`;
-            document.getElementById('currentDownloadInfo').textContent = '开始下载...';
-            
-            // 禁用批量下载按钮（原有UI状态不变）
             const batchBtn = document.getElementById('batchDownloadBtn');
             batchBtn.disabled = true;
             batchBtn.innerHTML = '<span class="loading"></span> 下载中...';
@@ -1295,8 +1216,8 @@
                 
                 // 并发控制函数：递归启动任务，不超过最大并发数
                 const startNextTask = async () => {
-                    // 终止条件：队列空或已取消
-                    if (downloadQueue.length === 0 || batchDownloadCanceled) return;
+                    // 终止条件：队列空
+                    if (downloadQueue.length === 0) return;
                     
                     // 取出队列中的下一个任务
                     const song = downloadQueue.shift();
@@ -1308,19 +1229,15 @@
                     if (!songItemEl) {
                         // 找不到元素，直接标记完成，继续下一个任务
                         completedCount++;
-                        updateTotalProgress();
                         return startNextTask();
                     }
                     
-                    // 执行单个下载任务（传入xhr存储容器）
-                    const { success, xhr } = await downloadSingleSongAsync(
-                        songId, quality, songName, songItemEl, activeXhrs
-                    );
+                    // 执行单个下载任务
+                    const success = await downloadSingleSong(songId, quality, songName, songItemEl);
                     
                     // 任务完成后更新计数
                     completedCount++;
                     if (success) successCount++;
-                    updateTotalProgress();
                     
                     // 递归启动下一个任务
                     startNextTask();
@@ -1334,43 +1251,24 @@
                 // 等待所有任务完成（轮询检查）
                 await new Promise(resolve => {
                     const checkComplete = setInterval(() => {
-                        if (completedCount >= total || batchDownloadCanceled) {
+                        if (completedCount >= total) {
                             clearInterval(checkComplete);
                             resolve();
                         }
                     }, 500);
                 });
                 
+                // 所有任务完成后提示
+                alert(`批量下载完成！成功: ${successCount}/${total}`);
+                
             } finally {
-                // 下载结束处理（原有UI恢复逻辑不变）
+                // 下载结束处理
                 isBatchDownloading = false;
                 batchBtn.disabled = false;
                 batchBtn.innerHTML = '批量下载本页';
                 
-                if (batchDownloadCanceled) {
-                    batchProgressText.textContent = `下载已取消 (成功: ${successCount}/${completedCount})`;
-                    document.getElementById('currentDownloadInfo').textContent = '下载已取消';
-                } else {
-                    batchProgressText.textContent = `下载完成 (成功: ${successCount}/${total})`;
-                    document.getElementById('currentDownloadInfo').textContent = '所有任务已处理完毕';
-                }
-                
-                // 自动隐藏进度条
-                if (!batchDownloadCanceled) {
-                    setTimeout(() => {
-                        batchProgressContainer.style.display = 'none';
-                    }, 5000);
-                }
-                
                 // 清空活跃请求列表
                 activeXhrs.clear();
-            }
-            
-            // 更新总进度条
-            function updateTotalProgress() {
-                const percent = (completedCount / total) * 100;
-                batchProgressBar.style.width = percent + '%';
-                batchProgressText.textContent = `下载中... (${completedCount}/${total})`;
             }
         }
 
@@ -1478,114 +1376,6 @@
                 };
                 
                 const formData = `url=${encodeURIComponent(id)}&level=${encodeURIComponent(level)}&type=json`;
-                xhr.send(formData);
-            });
-        }
-
-        /**
-         * 异步单首歌曲下载（支持并发，可取消）
-         * @param {string} songId - 歌曲ID
-         * @param {string} quality - 音质
-         * @param {string} songName - 歌曲名
-         * @param {HTMLElement} songItemEl - 歌曲元素
-         * @param {Map} activeXhrs - 存储活跃请求的Map
-         * @returns {Promise<{success: boolean, xhr: XMLHttpRequest}>}
-         */
-        function downloadSingleSongAsync(songId, quality, songName, songItemEl, activeXhrs) {
-            return new Promise((resolve) => {
-                if (batchDownloadCanceled) {
-                    return resolve({ success: false, xhr: null });
-                }
-
-                // 显示歌曲级进度条（原有UI逻辑不变）
-                const progressContainer = songItemEl.querySelector('.song-progress');
-                progressContainer.style.display = 'block';
-                const progressBar = progressContainer.querySelector('.progress-bar');
-                progressBar.style.width = '0%';
-                progressBar.style.background = '#4caf50';
-                
-                // 更新歌曲状态为下载中
-                const statusContainer = songItemEl.querySelector('.download-status');
-                statusContainer.innerHTML = '<span class="badge badge-downloading">下载中</span>';
-
-                // 创建下载请求
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', '/download', true);
-                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-                xhr.responseType = 'blob';
-                
-                // 存储活跃请求（用于取消）
-                activeXhrs.set(songId, xhr);
-                
-                // 监听进度事件
-                xhr.addEventListener('progress', function(e) {
-                    if (e.lengthComputable) {
-                        const percent = (e.loaded / e.total) * 100;
-                        progressBar.style.width = percent + '%';
-                    }
-                });
-                
-                // 模拟进度（当真实进度不可用时）
-                let progressInterval;
-                if (!xhr.upload) {
-                    let simulatedProgress = 0;
-                    progressInterval = setInterval(() => {
-                        if (simulatedProgress < 90 && !batchDownloadCanceled) {
-                            simulatedProgress += Math.random() * 5;
-                            progressBar.style.width = simulatedProgress + '%';
-                        }
-                    }, 1000);
-                }
-                
-                // 下载完成处理
-                xhr.onload = function() {
-                    clearInterval(progressInterval);
-                    activeXhrs.delete(songId); // 移除活跃请求
-                    
-                    if (xhr.status === 200 && !batchDownloadCanceled) {
-                        // 下载成功
-                        progressBar.style.width = '100%';
-                        statusContainer.innerHTML = '<span class="badge badge-success">已下载</span>';
-                        
-                        // 处理文件下载
-                        const encodedFilename = xhr.getResponseHeader('X-Download-Filename') || 
-                                            xhr.getResponseHeader('Content-Disposition')?.match(/filename\*=UTF-8''(.*)/)?.[1];
-                        const filename = encodedFilename ? decodeURIComponent(encodedFilename) : `${songName}.${quality === 'lossless' ? 'flac' : 'mp3'}`;
-                        
-                        const blob = xhr.response;
-                        const url = window.URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = filename;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        window.URL.revokeObjectURL(url);
-                        
-                        return resolve({ success: true, xhr });
-                    } else {
-                        // 下载失败（含取消状态）
-                        progressBar.style.width = '100%';
-                        progressBar.style.background = batchDownloadCanceled ? '#ff9800' : '#f44336';
-                        statusContainer.innerHTML = batchDownloadCanceled 
-                            ? '<span class="badge badge-warning">已取消</span>'
-                            : '<span class="badge badge-failed">下载失败</span>';
-                        return resolve({ success: false, xhr });
-                    }
-                };
-                
-                // 网络错误处理
-                xhr.onerror = function() {
-                    clearInterval(progressInterval);
-                    activeXhrs.delete(songId);
-                    progressBar.style.width = '100%';
-                    progressBar.style.background = '#f44336';
-                    statusContainer.innerHTML = '<span class="badge badge-failed">下载失败</span>';
-                    resolve({ success: false, xhr });
-                };
-                
-                // 发送请求
-                const formData = `id=${encodeURIComponent(songId)}&quality=${encodeURIComponent(quality)}&format=file`;
                 xhr.send(formData);
             });
         }
@@ -1943,25 +1733,6 @@
         
         // 批量下载按钮事件
         document.getElementById('batchDownloadBtn').addEventListener('click', batchDownloadCurrentPage);
-        
-        // 修正取消批量下载逻辑（终止所有活跃请求）
-        document.getElementById('cancelBatchDownload').addEventListener('click', () => {
-            if (isBatchDownloading) {
-                batchDownloadCanceled = true;
-                document.getElementById('currentDownloadInfo').textContent = '正在取消下载...';
-                
-                // 终止所有活跃请求
-                if (activeXhrs && activeXhrs.size > 0) {
-                    activeXhrs.forEach((xhr, songId) => {
-                        if (xhr.readyState !== XMLHttpRequest.DONE) {
-                            xhr.abort(); // 终止请求
-                        }
-                    });
-                }
-            } else {
-                document.getElementById('batchProgressContainer').style.display = 'none';
-            }
-        });
         
         // 返回歌单列表按钮事件
         backToPlaylistBtn.addEventListener('click', () => {
