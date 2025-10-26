@@ -667,11 +667,22 @@ def download_music_api():
         url_info = url_v1(music_id, quality, cookies)
         if not url_info or 'data' not in url_info or not url_info['data'] or not url_info['data'][0].get('url'):
             return APIResponse.error("无法获取音乐下载链接，可能是版权限制或音质不支持", 404)
-        
+        # 获取音乐歌词信息
+        lyric_info = lyric_v1(music_id, cookies)
+
         # 构建音乐信息
         song_data = song_info['songs'][0]
         url_data = url_info['data'][0]
         
+        # 获取专辑详情以提取更准确的发行时间
+        alum_id=song_data['al']['id'] if song_data and 'al' in song_data and song_data['al'] else None
+        alum_info = api_service.netease_api.get_album_detail(alum_id,cookies) if alum_id else None
+        alum_publisTime=''
+        if alum_info and 'publishTime' in alum_info:
+            alum_publisTime = alum_info.get('publishTime', song_data['al'].get('publishTime',0))
+        publish_timestamp = alum_publisTime
+        # 转换为年月日格式（调用工具函数）
+        publish_time = api_service.netease_api._timestamp_str_to_date(publish_timestamp)
         music_info = {
             'id': music_id,
             'name': song_data['name'],
@@ -682,19 +693,29 @@ def download_music_api():
             'file_size': url_data['size'],
             'duration': song_data.get('dt', 0),
             'download_url': url_data['url'],
-            'publishTime': song_data['publishTime']
+            'publishTime': publish_time,
+            'track_number': song_data['no'],
+            'lyric': lyric_info.get('lrc', {}).get('lyric', '') if lyric_info else '',
+            'tlyric': lyric_info.get('tlyric', {}).get('lyric', '') if lyric_info else ''
         }
         
         # 生成安全文件名
-        #safe_name = f"{music_info['name']} [{quality}]"
-        safe_name = f"{music_info['artist_string']} - {music_info['name']}"
-        safe_name = ''.join(c for c in safe_name if c not in r'<>:"/\|?*')
-        filename = f"{safe_name}.{music_info['file_type']}"
+        # 获取音乐信息
+        title = music_info['name']
+        artists = music_info['artist_string']
+        # 生成可能的文件名
+        base_filename = f"{artists} - {title}"
+        safe_filename = api_service.downloader.get_sanitize_filename(base_filename)
+
+        file_ext = api_service.downloader.get_file_extension(music_info['download_url'])
+        # 检查所有可能的文件
+        filename = f"{safe_filename}{file_ext}"
         
         # 【核心修改】删除本地文件检查逻辑，改为内存下载
         try:
             # 调用内存下载方法（含标签写入）
-            success, audio_data, _ = api_service.downloader.download_music_to_memory(music_id, quality)
+            m_info=api_service.downloader.convert_to_music_info(music_info)
+            success, audio_data, _ = api_service.downloader.download_music_to_memory(m_info, quality)
             if not success:
                 return APIResponse.error("下载失败: 内存传输异常", 500)
         except DownloadException as e:

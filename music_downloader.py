@@ -116,6 +116,16 @@ class MusicDownloader:
             'flac': AudioFormat.FLAC,
             'm4a': AudioFormat.M4A
         }
+    def get_sanitize_filename(self, filename: str) -> str:
+        """公开的文件名清理方法
+        
+        Args:
+            filename: 原始文件名
+            
+        Returns:
+            清理后的安全文件名
+        """
+        return self._sanitize_filename(filename)
     
     def _sanitize_filename(self, filename: str) -> str:
         """清理文件名，移除非法字符
@@ -128,7 +138,7 @@ class MusicDownloader:
         """
         # 移除或替换非法字符
         illegal_chars = r'[<>:"/\\|?*]'
-        filename = re.sub(illegal_chars, '_', filename)
+        filename = re.sub(illegal_chars, ' & ', filename)
         
         # 移除前后空格和点
         filename = filename.strip(' .')
@@ -392,7 +402,7 @@ class MusicDownloader:
                 error_message=f"异步下载过程中发生错误: {e}"
             )
     
-    def download_music_to_memory(self, music_id: int, quality: str = "standard") -> Tuple[bool, BytesIOType, MusicInfo]:
+    def download_music_to_memory(self, music_info:MusicInfo, quality: str = "standard") -> Tuple[bool, BytesIOType, MusicInfo]:
         """下载音乐到内存（含标签写入）"""
         try:
             # 检查是否超过并发限制
@@ -402,11 +412,6 @@ class MusicDownloader:
                 self.active_downloads += 1
 
             try:
-                # 获取音乐信息
-                music_info = self.get_music_info(music_id, quality)
-                if not music_info.download_url:
-                    raise DownloadException("未获取到有效下载链接")
-
                 # 流式下载到内存
                 response = requests.get(
                     music_info.download_url,
@@ -756,17 +761,17 @@ class MusicDownloader:
                 audio['TRACKNUMBER'] = str(music_info.track_number)
             
             # 新增：发行时间（需要从音乐信息中获取publishTime）
-            # 注意：需要确保music_info中包含publishTime字段（后续需在MusicInfo类中添加）
+            # 处理发行时间标签（DATE: YYYY-MM-DD，YEAR: YYYY）
             if hasattr(music_info, 'publishTime') and music_info.publishTime:
-                full_date = music_info.publishTime
-                
-                # 单独写入年份（提高兼容性）
-                if '-' in full_date:
-                    audio['YEAR'] = full_date.split('-')[0]  # 提取YYYY部分
+                full_date = music_info.publishTime.strip()
+                # 校验是否为 YYYY-MM-DD 格式
+                if re.match(r'^\d{4}-\d{2}-\d{2}$', full_date):
+                    audio['DATE'] = full_date  # 完整日期
+                    audio['YEAR'] = full_date.split('-')[0]  # 提取年份
                 else:
-                    audio['YEAR'] = full_date  # 若本身就是年份格式
-                # 写入完整日期（标准DATE字段）
-                audio['DATE'] = full_date.split('-')[0]  # 提取YYYY部分
+                    logger.warning(f"publishTime格式错误（需YYYY-MM-DD），实际值: {full_date}，跳过日期标签")
+            else:
+                logger.debug("publishTime为空，跳过日期标签")
             # 新增：歌词标签（使用自定义字段存储歌词和翻译歌词）
             if music_info.lyric:
                 audio['LYRICS'] = music_info.lyric.strip()  # 原歌词
@@ -827,6 +832,50 @@ class MusicDownloader:
             logger.debug(f"M4A标签保存成功，内存流位置: {io.tell()}")
         except Exception as e:
             logger.error(f"M4A标签写入失败: {str(e)}", exc_info=True)
+
+    def convert_to_music_info(self,music_info_dict: dict) -> MusicInfo:
+        """
+        将音乐信息字典转换为MusicInfo实例
+        
+        参数:
+            music_info_dict: 包含音乐信息的字典（对应题中json数据结构）
+        
+        返回:
+            MusicInfo实例
+        """
+        return MusicInfo(
+            id=music_info_dict['id'],
+            name=music_info_dict['name'],
+            publishTime=music_info_dict['publishTime'],
+            # 字典中的artist_string对应类中的artists字段
+            artists=music_info_dict['artist_string'],
+            album=music_info_dict['album'],
+            pic_url=music_info_dict['pic_url'],
+            duration=music_info_dict['duration'],
+            track_number=music_info_dict['track_number'],
+            download_url=music_info_dict['download_url'],
+            file_type=music_info_dict['file_type'],
+            file_size=music_info_dict['file_size'],
+            # 字典中未包含quality，这里使用默认空字符串（可根据实际需求调整）
+            quality=music_info_dict.get('quality', ''),
+            lyric=music_info_dict['lyric'],
+            tlyric=music_info_dict['tlyric']
+        )
+
+    def get_file_extension(self, url: str, content_type: str = "") -> str:
+        """获取音乐文件扩展名
+        
+        Args:
+            music_id: 音乐ID
+            quality: 音质等级
+            
+        Returns:
+            文件扩展名字符串（如'.mp3'）
+        """
+        try:
+            return self._determine_file_extension(url, content_type)
+        except Exception as e:
+            raise DownloadException(f"获取文件扩展名失败: {e}")
 
     def get_download_progress(self, music_id: int, quality: str = "standard") -> Dict[str, Any]:
         """获取下载进度信息
