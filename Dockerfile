@@ -26,6 +26,7 @@ RUN apk update && apk add --no-cache \
     busybox \
     git \
     rsync \
+    lsof \
     && rm -rf /var/cache/apk/*
 
 # 创建所需目录（root 用户默认有完全权限，简化权限设置）# 确保目录可读写

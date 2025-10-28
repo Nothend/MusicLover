@@ -125,6 +125,17 @@ log_time() {
   date +"%Y-%m-%d %H:%M:%S %Z"
 }
 echo "[\$(log_time)] 触发应用重启..."
+
+# 关键：强制杀死占用5151端口的所有进程
+PORT=5151
+echo "[\$(log_time)] 检查端口 \$PORT 是否被占用..."
+PID=\$(lsof -i :\$PORT -t)  # 获取占用端口的进程ID
+if [ -n "\$PID" ]; then
+  echo "[\$(log_time)] 端口 \$PORT 被进程 \$PID 占用，强制杀死..."
+  kill -9 \$PID || true  # 使用-9强制终止，确保杀死
+  sleep 2  # 等待进程退出
+fi
+# 启动新应用
 APP_DIR="$APP_DIR"
 kill \$MAIN_PID || true
 wait \$MAIN_PID 2>/dev/null || true
