@@ -114,7 +114,81 @@ class CookieManager:
         except Exception as e:
             self.logger.error(f"解析Cookie字符串失败: {e}")
             return {}
+        
+    def write_cookie(self, cookie_content: str) -> bool:
+        """将Cookie写入config.yaml配置文件（增加权限异常处理）"""
+        try:
+            if not cookie_content or not cookie_content.strip():
+                raise CookieException("Cookie内容不能为空")
+            
+            if not self.validate_cookie_format(cookie_content):
+                raise CookieException("Cookie格式无效")
+            
+            # 更新配置并保存（可能触发权限检查）
+            self.config.config['cookie'] = cookie_content.strip()
+            try:
+                self.config.save_config()  # 这里会触发Config类的权限检查
+            except PermissionError as e:
+                # 针对Docker环境的友好提示
+                raise CookieException(
+                    f"无权限写入config.yaml，请检查docker-compose映射的文件权限。详情：{str(e)}"
+                ) from e
+            
+            self.set_cookie_string(cookie_content.strip())
+            self.logger.info(f"Cookie已更新到配置文件: {self.config.config_path}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"写入Cookie失败: {e}")
+            raise CookieException(f"写入Cookie失败: {e}")
+        
+    def update_cookie(self, new_cookies: Dict[str, str]) -> bool:
+        """更新Cookie
+        
+        Args:
+            new_cookies: 新的Cookie字典
+            
+        Returns:
+            是否更新成功
+        """
+        try:
+            if not new_cookies:
+                raise CookieException("新Cookie不能为空")
+            
+            # 读取现有Cookie
+            existing_cookies = self.parsed_cookies.copy()
+            
+            # 合并Cookie
+            existing_cookies.update(new_cookies)
+            
+            # 转换为Cookie字符串
+            cookie_string = self.format_cookie_string(existing_cookies)
+            
+            # 写入文件
+            return self.write_cookie(cookie_string)
+            
+        except Exception as e:
+            self.logger.error(f"更新Cookie失败: {e}")
+            return False
     
+    def get_cookie_for_request(self) -> Dict[str, str]:
+        """获取用于HTTP请求的Cookie字典
+        
+        Returns:
+            适用于requests库的Cookie字典
+        """
+        try:
+            cookies = self.parse_cookies()
+            
+            # 过滤掉空值
+            filtered_cookies = {k: v for k, v in cookies.items() if k and v}
+            
+            return filtered_cookies
+            
+        except Exception as e:
+            self.logger.error(f"获取请求Cookie失败: {e}")
+            return {}
+        
     def validate_cookie_format(self, cookie_string: str) -> bool:
         """验证Cookie格式是否有效
         
@@ -183,18 +257,14 @@ class CookieManager:
             return False
     
     def get_cookie_info(self) -> Dict[str, Any]:
-        """获取Cookie详细信息
-        
-        Returns:
-            包含Cookie信息的字典
-        """
+        """获取Cookie详细信息（适配配置文件）"""
         try:
-            cookies = self.parse_cookies()
+            cookies = self.parsed_cookies
+            config_path = self.config.config_path
             
             info = {
-                'file_path': str(self.cookie_file),
-                'file_exists': self.cookie_file.exists(),
-                'file_size': self.cookie_file.stat().st_size if self.cookie_file.exists() else 0,
+                'config_path': str(config_path),  # 配置文件路径
+                'config_exists': config_path.exists(),
                 'cookie_count': len(cookies),
                 'is_valid': self.is_cookie_valid(),
                 'important_cookies_present': list(self.important_cookies & set(cookies.keys())),
@@ -202,18 +272,17 @@ class CookieManager:
                 'all_cookie_names': list(cookies.keys())
             }
             
-            # 添加文件修改时间
-            if self.cookie_file.exists():
-                mtime = self.cookie_file.stat().st_mtime
-                info['last_modified'] = datetime.fromtimestamp(mtime).isoformat()
+            # 添加配置文件修改时间
+            if config_path.exists():
+                mtime = config_path.stat().st_mtime
+                info['config_last_modified'] = datetime.fromtimestamp(mtime).isoformat()
             
             return info
             
         except Exception as e:
             return {
                 'error': str(e),
-                'file_path': str(self.cookie_file),
-                'file_exists': False,
+                'config_path': str(self.config.config_path),
                 'is_valid': False
             }
         

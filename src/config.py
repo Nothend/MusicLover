@@ -100,6 +100,32 @@ class Config:
         
         return current  # 找到最终值
     
+    # 在config.py的Config类中更新save_config方法
+    def save_config(self) -> None:
+        """将当前配置保存到yaml文件（增加权限检查）"""
+        try:
+            # 检查文件是否存在
+            if self.config_path.exists():
+                # 已存在的文件：检查是否有写入权限
+                if not os.access(self.config_path, os.W_OK):
+                    raise PermissionError(f"配置文件无写入权限: {self.config_path}")
+            else:
+                # 文件不存在：检查父目录是否有写入权限（用于创建新文件）
+                parent_dir = self.config_path.parent
+                if not os.access(parent_dir, os.W_OK):
+                    raise PermissionError(f"配置文件目录无写入权限: {parent_dir}")
+
+            # 执行写入
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                yaml.safe_dump(self.config, f, allow_unicode=True, sort_keys=False)
+            logging.info(f"配置已保存到: {self.config_path}")
+        except PermissionError as e:
+            logging.error(f"权限不足：{str(e)}（请检查docker-compose的文件映射权限）")
+            raise  # 抛出异常让上层处理
+        except Exception as e:
+            logging.error(f"保存配置失败: {str(e)}")
+            raise
+    
     # 以下为新增的参数获取属性（直接返回配置值或默认值）
     @property
     def web_host(self) -> str:
