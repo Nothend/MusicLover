@@ -609,13 +609,13 @@
                 <div class="settings-group">
                     <label for="payment-method">选择支付方式</label>
                     <select id="payment-method" class="form-control">
-                        <option value="alipay">支付宝</option>
                         <option value="wechat">微信支付</option>
+                        <option value="alipay">支付宝</option>
                     </select>
                     
                     <div class="payment-qr-container">
                         <img id="payment-qr-image" class="payment-qr-image" 
-                             src="{{ url_for('static', filename='alipay.png') }}" alt="支付宝收款码">
+                             src="{{ url_for('static', filename='wechat.png') }}" alt="微信收款码">
                     </div>
                     <p style="text-align: center; font-size: 0.9rem; color: #666;">
                         感谢您的支持，您的捐赠将帮助我们持续改进服务
