@@ -76,7 +76,10 @@
   // 歌曲MV  http://music.163.com/api/mv/detail?id=319104&type=mp4
 
 """
+import base64
+from io import BytesIO
 import json
+from tkinter import Image
 import urllib.parse
 import time
 from random import randrange
@@ -84,6 +87,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from hashlib import md5
 from enum import Enum
 
+import qrcode
 import requests
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -701,6 +705,60 @@ class QRLoginManager:
         except (json.JSONDecodeError, KeyError) as e:
             raise APIException(f"解析二维码key响应失败: {e}")
     
+    def create_qr_code(self) -> Dict[str, Any]:
+        """创建登录二维码并返回base64格式图片
+        
+        Returns:
+            字典包含success状态、qr_key、qr_base64和消息
+        """
+        try:
+            if not qrcode or not Image:
+                return {
+                    'success': False, 
+                    'message': '请安装qrcode和PIL库: pip install qrcode pillow'
+                }
+            
+            # 获取unikey
+            unikey = self.generate_qr_key()
+            if not unikey:
+                return {'success': False, 'message': '生成二维码key失败'}
+            
+            self.qr_key = unikey  # 保存qr_key
+            
+            # 创建二维码图片
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            # 二维码内容：网易云音乐登录链接
+            qr_content = f'https://music.163.com/login?codekey={unikey}'
+            qr.add_data(qr_content)
+            qr.make(fit=True)
+            
+            # 生成图片（RGB模式，白色背景，黑色前景）
+            img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
+            
+            # 将图片保存到内存字节流
+            img_byte_arr = BytesIO()
+            img.save(img_byte_arr, format='PNG')  # 保存为PNG格式
+            img_byte_arr.seek(0)  # 重置文件指针
+            
+            # 转换为base64
+            qr_base64 = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
+            self.qr_img_base64 = qr_base64
+            
+            return {
+                'success': True,
+                'qr_key': unikey,
+                'qr_base64': qr_base64,
+                'message': '二维码生成成功，请使用网易云音乐APP扫描'
+            }
+            
+        except Exception as e:
+            return {'success': False, 'message': f'创建二维码失败: {str(e)}'}
+
     def create_qr_login(self) -> Optional[str]:
         """创建登录二维码并在控制台显示
         
@@ -770,6 +828,59 @@ class QRLoginManager:
         except (json.JSONDecodeError, KeyError) as e:
             raise APIException(f"解析登录状态响应失败: {e}")
     
+    def check_login_status(self, qr_key: str) -> Dict[str, Any]:
+        """检查二维码登录状态"""
+        try:
+            if not qr_key:
+                return {'success': False, 'message': '二维码key不能为空'}
+            
+            url = 'https://music.163.com/login?csrf_token='
+            params = {
+                'type': '1',
+                'csrf_token': '',
+                'qrKey': qr_key
+            }
+            
+            response = self.session.post(url, params=params, headers=self.headers)
+            if response.status_code != 200:
+                return {'success': False, 'message': f'检查登录状态失败，状态码：{response.status_code}'}
+            
+            data = response.json()
+            self.login_status = data.get('data', {}).get('code')
+            
+            # 状态码说明：
+            # 800 - 二维码已过期
+            # 801 - 等待扫码
+            # 802 - 已扫码待确认
+            # 803 - 登录成功
+            
+            result = {
+                'success': True,
+                'status_code': self.login_status,
+                'message': self._get_status_message(self.login_status)
+            }
+            
+            # 登录成功时获取cookie
+            if self.login_status == 803:
+                cookies = self.session.cookies.get_dict()
+                cookie_str = '; '.join([f'{k}={v}' for k, v in cookies.items()])
+                result['cookie'] = cookie_str
+            
+            return result
+            
+        except Exception as e:
+            return {'success': False, 'message': f'检查登录状态时发生错误：{str(e)}'}
+    
+    def _get_status_message(self, status_code: int) -> str:
+        """根据状态码返回对应的消息"""
+        messages = {
+            800: '二维码已过期',
+            801: '等待扫码中...',
+            802: '已扫码，请在手机上确认',
+            803: '登录成功'
+        }
+        return messages.get(status_code, f'未知状态：{status_code}')
+
     def qr_login(self) -> Optional[str]:
         """完整的二维码登录流程
         
