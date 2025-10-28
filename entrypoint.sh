@@ -125,8 +125,10 @@ log_time() {
   date +"%Y-%m-%d %H:%M:%S %Z"
 }
 echo "[\$(log_time)] 触发应用重启..."
+APP_DIR="$APP_DIR"
 kill \$MAIN_PID || true
 wait \$MAIN_PID 2>/dev/null || true
+echo "[\$(log_time)] 准备进入目录 \$APP_DIR/src ..."
 cd "\$APP_DIR/src" && python main.py &
 export MAIN_PID=\$!
 echo "[\$(log_time)] 应用重启完成（新PID: \$MAIN_PID）"
