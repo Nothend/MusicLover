@@ -9,7 +9,7 @@ services:
     ports:
       - "5151:5151"
     volumes:
-      - ./config.yaml:/app/config.yaml:ro  # 配置文件映射（只读）
+      - ./config.yaml:/app/config.yaml  # 配置文件映射（只读）
       - ./logs:/app/logs  # 日志目录映射
     environment:
       - TZ=Asia/Shanghai  # 设置时区
