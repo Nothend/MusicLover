@@ -1,24 +1,53 @@
 import os
 from pathlib import Path
+import shutil
 import yaml
 import logging
 from typing import Dict, Any, Optional
 
 class Config:
     def __init__(self, config_path: str | None = None):
+        # 1. 确定基准路径（config.py所在目录，即src目录）
+        self.current_dir = Path(__file__).resolve().parent  # src目录（同级目录）
+        self.parent_dir = self.current_dir.parent          # 父目录（项目根目录）
+        # 2. 初始化目标配置路径（优先父目录）
         if config_path:
             self.config_path = Path(config_path)
         elif os.getenv("CONFIG_PATH"):
             self.config_path = Path(os.getenv("CONFIG_PATH"))
         else:
-            # __file__ 在 src/config.py，这里取上一级作为项目根
-            self.config_path = Path(__file__).resolve().parent.parent / "config.yaml"
+            # 默认目标路径：父目录下的config.yaml
+            self.config_path = self.parent_dir / "config.yaml"
 
-        # 备用：如果上面的路径不存在，再尝试 cwd 下同名文件
-        if not self.config_path.exists():
-            alt = Path.cwd() / self.config_path.name
-            if alt.exists():
-                self.config_path = alt
+        # 3. 检查父目录配置文件是否存在，不存在则尝试拷贝同级模板
+        if not self.config_path.exists() or not self.config_path.is_file():
+            # 同级模板路径（src目录下的config.yaml）
+            template_path = self.current_dir / "config.yaml"
+            
+            # 检查模板是否存在
+            if template_path.exists() and template_path.is_file():
+                try:
+                    # 确保父目录存在（Docker环境可能需要创建）
+                    self.parent_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # 拷贝模板到父目录
+                    shutil.copy2(template_path, self.config_path)  # 保留文件元数据
+                    logging.info(f"父目录未找到配置文件，已从同级模板拷贝: {template_path} -> {self.config_path}")
+                except Exception as e:
+                    logging.error(f"拷贝配置模板失败（可能是权限问题）: {str(e)}")
+                    raise  # 拷贝失败无法继续，抛出异常
+            else:
+                logging.warning(f"同级目录未找到配置模板: {template_path}")
+        
+        # 4. 若上述步骤仍未找到配置文件，检查当前工作目录（兼容原有备用逻辑）
+        if not self.config_path.exists() or not self.config_path.is_file():
+            alt_path = Path.cwd() / self.config_path.name
+            if alt_path.exists() and alt_path.is_file():
+                self.config_path = alt_path
+                logging.info(f"使用当前工作目录的配置文件: {self.config_path}")
+            else:
+                logging.error(f"所有路径均未找到配置文件，最终尝试路径: {self.config_path}, {alt_path}")
+                raise FileNotFoundError("配置文件不存在，且无可用模板")
 
         logging.info(f"使用配置文件: {self.config_path} (cwd={Path.cwd()})")
         self.config: Dict[str, Any] = {}
