@@ -574,28 +574,35 @@
         <div id="sidebar-content" class="sidebar-content">
             <!-- 上部分：二维码相关功能 -->
             <div class="settings-section">
-                <h4><span class="section-icon">📱</span> 二维码功能</h4>
+                <h4><span class="section-icon">📱</span> 二维码登录</h4>
                 
-                <!-- 倒计时控件（隐藏输入框，固定180秒） -->
+                <!-- 倒计时显示（3分钟倒计时） -->
                 <div class="settings-group">
-                    <label>倒计时 (180秒)</label>
-                    <input type="number" id="countdown-input" class="form-control" value="180" min="1" max="600" style="display: none;">
-                    <div class="countdown-display" id="countdown-display">180</div>
+                    <label>二维码有效期</label>
+                    <div class="countdown-display" id="countdown-display">3:00</div>
+                    <p style="text-align:center; font-size:0.8rem; color:#666; margin-top:5px;">
+                        请在倒计时结束前完成扫描
+                    </p>
                 </div>
                 
-                <!-- 二维码生成 -->
+                <!-- 二维码生成与显示 -->
                 <div class="settings-group">
-                    <button id="generate-qr-btn" class="btn btn-primary">生成二维码</button>
+                    <button id="generate-qr-btn" class="btn btn-primary">生成登录二维码</button>
                     <div class="qr-code-container">
-                        <img id="qr-code-image" class="qr-code-image" src="" alt="二维码">
-                        <p id="qr-placeholder" style="color: #999;">二维码将显示在这里</p>
+                        <img id="qr-code-image" class="qr-code-image" src="" alt="登录二维码">
+                        <p id="qr-placeholder" style="color: #999;">点击上方按钮生成二维码</p>
+                        <p id="login-status" style="margin-top:10px; font-size:0.9rem; color:#666;"></p>
                     </div>
                 </div>
                 
-                <!-- 扫描信息显示（固定不可拉伸） -->
+                <!-- 扫描结果显示 -->
                 <div class="settings-group">
-                    <label for="scan-result">扫描结果</label>
-                    <textarea id="scan-result" class="form-control" rows="3" placeholder="扫描二维码后显示的信息将在这里"></textarea>
+                    <label for="scan-result">登录凭证 (Cookie)</label>
+                    <textarea id="scan-result" class="form-control" rows="3" placeholder="扫描二维码并确认后显示"></textarea>
+                    <div style="display:flex; gap:10px; margin-top:10px;">
+                        <button id="copy-cookie-btn" class="btn btn-secondary" style="flex:1;">复制</button>
+                        <button id="clear-cookie-btn" class="btn btn-secondary" style="flex:1;">清除</button>
+                    </div>
                 </div>
             </div>
             
@@ -855,258 +862,962 @@
     </div>
 
     <script>
-        // 全局变量
-        let playlistData = null;
-        let currentPage = 1;
-        const pageSize = 30;
-        let isBatchDownloading = false;
-        let isFromPlaylistParse = false; // 标记是否从歌单解析进入单首歌曲视图
-        let countdownInterval = null;
-        const activeXhrs = new Map(); // 存储活跃请求的Map
-        
-        // 侧边栏控制
-        const settingsSidebar = document.getElementById('settings-sidebar');
-        const openSettingsBtn = document.getElementById('openSettings');
-        const closeSettingsBtn = document.getElementById('closeSettings');
-        const sidebarContent = document.getElementById('sidebar-content');
-        
-        function openSidebar() {
-            settingsSidebar.style.width = '350px';
-            document.body.style.overflow = 'hidden';
-            if (sidebarContent) {
-                sidebarContent.scrollTop = 0;
-            }
-        }
-        
-        function closeSidebar() {
-            settingsSidebar.style.width = '0';
-            document.body.style.overflow = '';
-        }
-        
-        openSettingsBtn.addEventListener('click', openSidebar);
-        closeSettingsBtn.addEventListener('click', closeSidebar);
-        
-        document.addEventListener('click', (e) => {
-            const isClickInside = settingsSidebar.contains(e.target);
-            const isOpenButton = openSettingsBtn.contains(e.target);
+        // 所有DOM操作代码包裹在DOMContentLoaded事件中
+        document.addEventListener('DOMContentLoaded', function() {
+            // 全局变量
+            let playlistData = null;
+            let currentPage = 1;
+            const pageSize = 30;
+            let isBatchDownloading = false;
+            let isFromPlaylistParse = false; // 标记是否从歌单解析进入单首歌曲视图
+            const activeXhrs = new Map(); // 存储活跃请求的Map
             
-            if (!isClickInside && !isOpenButton && settingsSidebar.style.width !== '0px') {
-                closeSidebar();
-            }
-        });
-
-        // 侧边栏新增功能
-        // 倒计时功能（固定180秒，生成二维码后自动开始）
-        const countdownInput = document.getElementById('countdown-input');
-        const countdownDisplay = document.getElementById('countdown-display');
-        
-        // 初始化倒计时显示为180秒
-        countdownDisplay.textContent = '180';
-        
-        // 开始倒计时函数
-        function startCountdown() {
-            // 如果已有倒计时，先清除
-            if (countdownInterval) {
-                clearInterval(countdownInterval);
+            // 侧边栏控制
+            const settingsSidebar = document.getElementById('settings-sidebar');
+            const openSettingsBtn = document.getElementById('openSettings');
+            const closeSettingsBtn = document.getElementById('closeSettings');
+            const sidebarContent = document.getElementById('sidebar-content');
+            
+            function openSidebar() {
+                settingsSidebar.style.width = '350px';
+                document.body.style.overflow = 'hidden';
+                if (sidebarContent) {
+                    sidebarContent.scrollTop = 0;
+                }
             }
             
-            let seconds = 180; // 固定180秒
-            countdownDisplay.textContent = seconds;
+            function closeSidebar() {
+                settingsSidebar.style.width = '0';
+                document.body.style.overflow = '';
+            }
             
-            countdownInterval = setInterval(() => {
-                seconds--;
-                countdownDisplay.textContent = seconds;
+            openSettingsBtn.addEventListener('click', openSidebar);
+            closeSettingsBtn.addEventListener('click', closeSidebar);
+            
+            document.addEventListener('click', (e) => {
+                const isClickInside = settingsSidebar.contains(e.target);
+                const isOpenButton = openSettingsBtn.contains(e.target);
                 
-                if (seconds <= 0) {
+                if (!isClickInside && !isOpenButton && settingsSidebar.style.width !== '0px') {
+                    closeSidebar();
+                }
+            });
+
+            // 侧边栏新增功能
+            // 倒计时功能（固定180秒，生成二维码后自动开始）
+            const countdownInput = document.getElementById('countdown-input');
+            
+            // 二维码生成功能（生成后自动开始倒计时）
+            // 获取DOM元素
+            const generateBtn = document.getElementById('generate-qr-btn');
+            const qrImage = document.getElementById('qr-code-image');
+            const qrPlaceholder = document.getElementById('qr-placeholder');
+            const loginStatus = document.getElementById('login-status');
+            const scanResult = document.getElementById('scan-result');
+            const copyBtn = document.getElementById('copy-cookie-btn');
+            const clearBtn = document.getElementById('clear-cookie-btn');
+            const countdownDisplay = document.getElementById('countdown-display');
+            
+            // 状态变量
+            let qrKey = null;
+            let checkInterval = null;
+            let countdownInterval = null;
+            const MAX_CHECK_COUNT = 60; // 3分钟（3秒/次 × 60次）
+            let checkCount = 0;
+            let remainingSeconds = 180; // 180秒 = 3分钟
+            
+            // 生成二维码按钮点击事件
+            generateBtn.addEventListener('click', function() {
+                // 重置状态
+                resetQrState();
+                
+                // 调用API生成二维码
+                fetch('/api/qr/generate')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            qrKey = data.data.qr_key;
+                            
+                            // 显示二维码，隐藏占位文本
+                            qrImage.src = `data:image/png;base64,${data.data.qr_base64}`;
+                            qrImage.style.display = 'block';
+                            qrPlaceholder.style.display = 'none';
+                            
+                            // 更新状态
+                            updateStatus('请使用网易云音乐APP扫描二维码', 'info');
+                            
+                            // 启动倒计时和状态检查
+                            startCountdown();
+                            startCheckingStatus();
+                        } else {
+                            updateStatus(`生成失败: ${data.message}`, 'danger');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('生成二维码失败:', error);
+                        updateStatus('生成二维码时发生错误', 'danger');
+                    });
+            });
+            
+            // 开始倒计时（格式：mm:ss）
+            function startCountdown() {
+                remainingSeconds = 180;
+                updateCountdownDisplay();
+                
+                countdownInterval = setInterval(() => {
+                    remainingSeconds--;
+                    updateCountdownDisplay();
+                    
+                    // 倒计时结束
+                    if (remainingSeconds <= 0) {
+                        clearInterval(countdownInterval);
+                        clearInterval(checkInterval);
+                        updateStatus('二维码已过期（3分钟已到）', 'danger');
+                        qrImage.style.opacity = '0.5'; // 视觉上标记过期
+                    }
+                }, 1000);
+            }
+            
+            // 更新倒计时显示
+            function updateCountdownDisplay() {
+                const minutes = Math.floor(remainingSeconds / 60);
+                const seconds = remainingSeconds % 60;
+                countdownDisplay.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            }
+            
+            // 开始轮询检查登录状态
+            function startCheckingStatus() {
+                if (!qrKey) return;
+                
+                checkCount = 0;
+                checkInterval = setInterval(() => {
+                    // 检查是否超过最大次数
+                    if (checkCount >= MAX_CHECK_COUNT) {
+                        clearInterval(checkInterval);
+                        clearInterval(countdownInterval);
+                        updateStatus('二维码已过期', 'danger');
+                        return;
+                    }
+                    
+                    checkCount++;
+                    
+                    // 调用API检查状态
+                    fetch(`/api/qr/check?qr_key=${encodeURIComponent(qrKey)}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                // 更新状态消息
+                                updateStatus(data.data.message, getStatusColor(data.data.status_code));
+                                
+                                // 处理不同状态
+                                switch(data.data.status_code) {
+                                    case 803: // 登录成功
+                                        clearInterval(checkInterval);
+                                        clearInterval(countdownInterval);
+                                        scanResult.value = data.data.cookie || '获取Cookie失败';
+                                        qrImage.style.border = '2px solid #4caf50'; // 成功标记
+                                        break;
+                                    case 800: // 二维码已过期
+                                        clearInterval(checkInterval);
+                                        clearInterval(countdownInterval);
+                                        qrImage.style.opacity = '0.5';
+                                        break;
+                                }
+                            } else {
+                                updateStatus(`检查失败: ${data.message}`, 'danger');
+                                stopAllIntervals();
+                            }
+                        })
+                        .catch(error => {
+                            console.error('检查登录状态失败:', error);
+                            updateStatus('检查状态时发生错误', 'danger');
+                            stopAllIntervals();
+                        });
+                }, 3000); // 每3秒检查一次
+            }
+            
+            // 更新状态显示（适配现有样式）
+            function updateStatus(message, type) {
+                loginStatus.textContent = message;
+                // 复用现有徽章样式
+                loginStatus.className = `badge badge-${type}`;
+            }
+            
+            // 根据状态码获取样式类型
+            function getStatusColor(statusCode) {
+                switch(statusCode) {
+                    case 801: return 'info';      // 等待扫码
+                    case 802: return 'warning';   // 已扫码待确认
+                    case 803: return 'success';   // 登录成功
+                    case 800: return 'danger';    // 已过期
+                    default: return 'secondary';
+                }
+            }
+            
+            // 复制Cookie
+            copyBtn.addEventListener('click', function() {
+                if (scanResult.value) {
+                    scanResult.select();
+                    document.execCommand('copy');
+                    updateStatus('Cookie已复制到剪贴板', 'success');
+                } else {
+                    updateStatus('没有可复制的内容', 'warning');
+                }
+            });
+            
+            // 清除内容
+            clearBtn.addEventListener('click', function() {
+                resetQrState();
+            });
+            
+            // 重置二维码状态
+            function resetQrState() {
+                // 清除定时器
+                stopAllIntervals();
+                
+                // 重置UI
+                qrImage.src = '';
+                qrImage.style.display = 'none';
+                qrImage.style.opacity = '1';
+                qrImage.style.border = 'none';
+                qrPlaceholder.style.display = 'block';
+                loginStatus.textContent = '';
+                loginStatus.className = '';
+                scanResult.value = '';
+                countdownDisplay.textContent = '3:00';
+            }
+            
+            // 停止所有定时器
+            function stopAllIntervals() {
+                if (checkInterval) {
+                    clearInterval(checkInterval);
+                    checkInterval = null;
+                }
+                if (countdownInterval) {
                     clearInterval(countdownInterval);
                     countdownInterval = null;
-                    // 倒计时结束后隐藏二维码
-                    document.getElementById('qr-code-image').style.display = 'none';
-                    document.getElementById('qr-placeholder').style.display = 'block';
-                    alert('二维码已过期！');
                 }
-            }, 1000);
-        }
-        
-        // 二维码生成功能（生成后自动开始倒计时）
-        const generateQrBtn = document.getElementById('generate-qr-btn');
-        const qrCodeImage = document.getElementById('qr-code-image');
-        const qrPlaceholder = document.getElementById('qr-placeholder');
-        const scanResult = document.getElementById('scan-result');
-        
-        generateQrBtn.addEventListener('click', () => {
-            // 生成二维码
-            const randomNum = Math.floor(Math.random() * 1000);
-            qrCodeImage.src = `https://picsum.photos/200/200?random=${randomNum}`;
-            qrCodeImage.style.display = 'block';
-            qrPlaceholder.style.display = 'none';
-            
-            // 模拟扫描结果
-            scanResult.value = `扫描成功：这是一个随机生成的二维码 #${randomNum}\n生成时间：${new Date().toLocaleString()}`;
-            
-            // 自动开始180秒倒计时
-            startCountdown();
-        });
-        
-        // 支付方式切换
-        const paymentMethod = document.getElementById('payment-method');
-        const paymentQrImage = document.getElementById('payment-qr-image');
-        
-        paymentMethod.addEventListener('change', () => {
-            if (paymentMethod.value === 'alipay') {
-                paymentQrImage.src = "{{ url_for('static', filename='alipay.png') }}";
-                paymentQrImage.alt = '支付宝收款码';
-            } else {
-                paymentQrImage.src = "{{ url_for('static', filename='wechat.png') }}";
-                paymentQrImage.alt = '微信收款码';
             }
-        });
-
-        // DOM元素
-        const parseOptions = document.querySelectorAll('.parse-option');
-        const parseTitle = document.getElementById('parse-title');
-        const inputLabel = document.getElementById('input-label');
-        const parseInput = document.getElementById('parse-input');
-        const resultCard = document.getElementById('result-card');
-        const playlistResult = document.getElementById('playlist-result');
-        const singleResult = document.getElementById('single-result');
-        const backToPlaylistContainer = document.getElementById('back-to-playlist-container');
-        const backToPlaylistBtn = document.getElementById('back-to-playlist');
-        const bigPicModal = document.getElementById('bigPicModal');
-        const bigPicImg = document.getElementById('big-pic-img');
-        const closeBigPic = document.getElementById('closeBigPic');
-        const showBigPicBtn = document.getElementById('show-big-pic');
-        
-        // 解析方式选择事件
-        parseOptions.forEach(option => {
-            option.addEventListener('click', () => {
-                parseOptions.forEach(opt => opt.classList.remove('active'));
-                option.classList.add('active');
-                
-                const type = option.getAttribute('data-type');
-                parseTitle.textContent = type;
-                inputLabel.textContent = type;
-                
-                switch(type) {
-                    case '链接解析':
-                        parseInput.placeholder = '请输入音乐链接';
-                        break;
-                    case '歌单解析':
-                        parseInput.placeholder = '请输入歌单链接';
-                        break;
-                    case '专辑解析':
-                        parseInput.placeholder = '请输入专辑链接';
-                        break;
-                }
-                
-                // 如果切换到歌单解析且有歌单数据，显示歌单结果
-                if (type === '歌单解析' && playlistData) {
-                    resultCard.style.display = 'block';
-                    singleResult.style.display = 'none';
-                    playlistResult.style.display = 'block';
-                    backToPlaylistContainer.style.display = 'none';
-                    isFromPlaylistParse = false;
+            // 支付方式切换
+            const paymentMethod = document.getElementById('payment-method');
+            const paymentQrImage = document.getElementById('payment-qr-image');
+            
+            paymentMethod.addEventListener('change', () => {
+                if (paymentMethod.value === 'alipay') {
+                    paymentQrImage.src = "{{ url_for('static', filename='alipay.png') }}";
+                    paymentQrImage.alt = '支付宝收款码';
                 } else {
-                    resultCard.style.display = 'none';
+                    paymentQrImage.src = "{{ url_for('static', filename='wechat.png') }}";
+                    paymentQrImage.alt = '微信收款码';
                 }
             });
-        });
-        
-        // 默认选中第一个选项
-        parseOptions[1].click();
-        
-        // 音质选择下拉菜单
-        const qualityDisplay = document.getElementById('quality-display');
-        const qualityOptions = document.getElementById('quality-options');
-        const qualitySelect = document.getElementById('quality-select');
-        const qualityItems = document.querySelectorAll('.select-option');
-        
-        qualityDisplay.addEventListener('click', () => {
-            qualityOptions.style.display = qualityOptions.style.display === 'block' ? 'none' : 'block';
-        });
-        
-        document.addEventListener('click', (e) => {
-            if (!qualityDisplay.contains(e.target) && !qualityOptions.contains(e.target)) {
-                qualityOptions.style.display = 'none';
+
+            // DOM元素
+            const parseOptions = document.querySelectorAll('.parse-option');
+            const parseTitle = document.getElementById('parse-title');
+            const inputLabel = document.getElementById('input-label');
+            const parseInput = document.getElementById('parse-input');
+            const resultCard = document.getElementById('result-card');
+            const playlistResult = document.getElementById('playlist-result');
+            const singleResult = document.getElementById('single-result');
+            const backToPlaylistContainer = document.getElementById('back-to-playlist-container');
+            const backToPlaylistBtn = document.getElementById('back-to-playlist');
+            const bigPicModal = document.getElementById('bigPicModal');
+            const bigPicImg = document.getElementById('big-pic-img');
+            const closeBigPic = document.getElementById('closeBigPic');
+            const showBigPicBtn = document.getElementById('show-big-pic');
+            
+            // 解析方式选择事件
+            parseOptions.forEach(option => {
+                option.addEventListener('click', () => {
+                    parseOptions.forEach(opt => opt.classList.remove('active'));
+                    option.classList.add('active');
+                    
+                    const type = option.getAttribute('data-type');
+                    parseTitle.textContent = type;
+                    inputLabel.textContent = type;
+                    
+                    switch(type) {
+                        case '链接解析':
+                            parseInput.placeholder = '请输入音乐链接';
+                            break;
+                        case '歌单解析':
+                            parseInput.placeholder = '请输入歌单链接';
+                            break;
+                        case '专辑解析':
+                            parseInput.placeholder = '请输入专辑链接';
+                            break;
+                    }
+                    
+                    // 如果切换到歌单解析且有歌单数据，显示歌单结果
+                    if (type === '歌单解析' && playlistData) {
+                        resultCard.style.display = 'block';
+                        singleResult.style.display = 'none';
+                        playlistResult.style.display = 'block';
+                        backToPlaylistContainer.style.display = 'none';
+                        isFromPlaylistParse = false;
+                    } else {
+                        resultCard.style.display = 'none';
+                    }
+                });
+            });
+            
+            // 默认选中第一个选项
+            parseOptions[1].click();
+            
+            // 音质选择下拉菜单
+            const qualityDisplay = document.getElementById('quality-display');
+            const qualityOptions = document.getElementById('quality-options');
+            const qualitySelect = document.getElementById('quality-select');
+            const qualityItems = document.querySelectorAll('.select-option');
+            
+            qualityDisplay.addEventListener('click', () => {
+                qualityOptions.style.display = qualityOptions.style.display === 'block' ? 'none' : 'block';
+            });
+            
+            document.addEventListener('click', (e) => {
+                if (!qualityDisplay.contains(e.target) && !qualityOptions.contains(e.target)) {
+                    qualityOptions.style.display = 'none';
+                }
+            });
+            
+            qualityItems.forEach(item => {
+                item.addEventListener('click', () => {
+                    qualityItems.forEach(i => i.classList.remove('active'));
+                    item.classList.add('active');
+                    
+                    const qualityName = item.querySelector('span:first-child').textContent;
+                    const value = item.getAttribute('data-value');
+                    
+                    qualityDisplay.innerHTML = `
+                        <span>${qualityName}</span>
+                        <span>▼</span>
+                    `;
+                    qualitySelect.value = value;
+                    qualityOptions.style.display = 'none';
+                });
+            });
+
+            // 格式化时长（毫秒转分:秒）
+            function formatDuration(ms) {
+                if (!ms) return '未知';
+                const totalSeconds = Math.floor(ms / 1000);
+                const minutes = Math.floor(totalSeconds / 60);
+                const seconds = totalSeconds % 60;
+                return `${minutes}:${seconds.toString().padStart(2, '0')}`;
             }
-        });
-        
-        qualityItems.forEach(item => {
-            item.addEventListener('click', () => {
-                qualityItems.forEach(i => i.classList.remove('active'));
-                item.classList.add('active');
+
+            // 格式化时间（时间戳转日期）
+            function formatDate(timestamp) {
+                if (!timestamp) return '未知';
+                const date = new Date(timestamp);
+                return date.toLocaleString('zh-CN', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            }
+
+            // 获取音质文本
+            function getQualityText(level) {
+                const qualityMap = {
+                    'standard': '标准音质',
+                    'exhigh': '极高音质',
+                    'lossless': '无损音质',
+                    'hires': 'Hi-Res音质',
+                    'sky': '沉浸环绕声',
+                    'jyeffect': '高清环绕声',
+                    'jymaster': '超清母带'
+                };
+                return qualityMap[level] || level;
+            }
+
+            /**
+             * 单首歌曲下载函数（封装为Promise）
+             */
+            function downloadSingleSong(songId, quality, songName, songItemEl) {
+                return new Promise((resolve) => {
+                    // 显示歌曲级进度条
+                    const progressContainer = songItemEl.querySelector('.song-progress');
+                    progressContainer.style.display = 'block';
+                    const progressBar = progressContainer.querySelector('.progress-bar');
+                    progressBar.style.width = '0%';
+                    progressBar.style.background = '#4caf50'; // 恢复默认进度条颜色
+                    
+                    // 更新歌曲状态为下载中
+                    const statusContainer = songItemEl.querySelector('.download-status');
+                    statusContainer.innerHTML = '<span class="badge badge-downloading">下载中</span>';
+
+                    // 使用XMLHttpRequest处理下载（适配后端内存流接口）
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', '/Download', true); // 保持与后端接口一致（区分大小写时用'/Download'）
+                    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                    xhr.responseType = 'blob'; // 内存流返回的是blob类型
+                    
+                    // 监听进度事件
+                    xhr.addEventListener('progress', function(e) {
+                        if (e.lengthComputable) {
+                            const percent = (e.loaded / e.total) * 100;
+                            progressBar.style.width = percent + '%';
+                        }
+                    });
+                    
+                    // 模拟进度（如果真实进度不可用）
+                    let progressInterval;
+                    if (!xhr.upload) {
+                        let simulatedProgress = 0;
+                        progressInterval = setInterval(() => {
+                            if (simulatedProgress < 90) {
+                                simulatedProgress += Math.random() * 5;
+                                progressBar.style.width = simulatedProgress + '%';
+                            }
+                        }, 1000);
+                    }
+                    
+                    // 下载完成处理（适配内存流返回的文件）
+                    xhr.onload = function() {
+                        clearInterval(progressInterval);
+                        
+                        if (xhr.status === 200) {
+                            // 下载成功：内存流返回的blob直接用于创建下载
+                            progressBar.style.width = '100%';
+                            statusContainer.innerHTML = '<span class="badge badge-success">已下载</span>';
+                            
+                            // 从响应头获取文件名（与后端新增的UTF-8编码头适配）
+                            const encodedFilename = xhr.getResponseHeader('X-Download-Filename') || 
+                                                xhr.getResponseHeader('Content-Disposition')?.match(/filename\*=UTF-8''(.*)/)?.[1];
+                            const filename = encodedFilename ? decodeURIComponent(encodedFilename) : `${songName}.${quality === 'lossless' ? 'flac' : 'mp3'}`;
+                            
+                            // 创建临时下载链接（内存流文件处理，原有逻辑不变）
+                            const blob = xhr.response;
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            window.URL.revokeObjectURL(url); // 释放内存
+                            
+                            resolve(true);
+                        } else {
+                            // 下载失败处理（原有逻辑不变）
+                            progressBar.style.width = '100%';
+                            progressBar.style.background = '#f44336';
+                            statusContainer.innerHTML = '<span class="badge badge-failed">下载失败</span>';
+                            resolve(false);
+                        }
+                    };
+                    
+                    xhr.onerror = function() {
+                        clearInterval(progressInterval);
+                        progressBar.style.width = '100%';
+                        progressBar.style.background = '#f44336';
+                        statusContainer.innerHTML = '<span class="badge badge-failed">下载失败</span>';
+                        resolve(false);
+                    };
+                    
+                    // 发送请求（参数与后端接口保持一致）
+                    const formData = `id=${encodeURIComponent(songId)}&quality=${encodeURIComponent(quality)}&format=file`;
+                    xhr.send(formData);
+                });
+            }
+
+            /**
+             * 批量下载本页歌曲
+             */
+            async function batchDownloadCurrentPage() {
+                if (isBatchDownloading || !playlistData) return;
                 
-                const qualityName = item.querySelector('span:first-child').textContent;
-                const value = item.getAttribute('data-value');
+                // 获取当前页歌曲
+                const pl = playlistData.data.playlist;
+                const allSongs = pl.songs || pl.tracks || [];
+                const startIndex = (currentPage - 1) * pageSize;
+                const endIndex = Math.min(startIndex + pageSize, allSongs.length);
+                const currentSongs = allSongs.slice(startIndex, endIndex);
                 
-                qualityDisplay.innerHTML = `
-                    <span>${qualityName}</span>
-                    <span>▼</span>
-                `;
-                qualitySelect.value = value;
-                qualityOptions.style.display = 'none';
-            });
-        });
-
-        // 格式化时长（毫秒转分:秒）
-        function formatDuration(ms) {
-            if (!ms) return '未知';
-            const totalSeconds = Math.floor(ms / 1000);
-            const minutes = Math.floor(totalSeconds / 60);
-            const seconds = totalSeconds % 60;
-            return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-        }
-
-        // 格式化时间（时间戳转日期）
-        function formatDate(timestamp) {
-            if (!timestamp) return '未知';
-            const date = new Date(timestamp);
-            return date.toLocaleString('zh-CN', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-        }
-
-        // 获取音质文本
-        function getQualityText(level) {
-            const qualityMap = {
-                'standard': '标准音质',
-                'exhigh': '极高音质',
-                'lossless': '无损音质',
-                'hires': 'Hi-Res音质',
-                'sky': '沉浸环绕声',
-                'jyeffect': '高清环绕声',
-                'jymaster': '超清母带'
-            };
-            return qualityMap[level] || level;
-        }
-
-        /**
-         * 单首歌曲下载函数（封装为Promise）
-         */
-        function downloadSingleSong(songId, quality, songName, songItemEl) {
-            return new Promise((resolve) => {
-                // 显示歌曲级进度条
-                const progressContainer = songItemEl.querySelector('.song-progress');
-                progressContainer.style.display = 'block';
-                const progressBar = progressContainer.querySelector('.progress-bar');
-                progressBar.style.width = '0%';
-                progressBar.style.background = '#4caf50'; // 恢复默认进度条颜色
+                if (currentSongs.length === 0) {
+                    alert('当前页没有可下载的歌曲');
+                    return;
+                }
                 
-                // 更新歌曲状态为下载中
-                const statusContainer = songItemEl.querySelector('.download-status');
-                statusContainer.innerHTML = '<span class="badge badge-downloading">下载中</span>';
+                // 配置并发参数
+                const MAX_CONCURRENT = 3; // 最大同时下载数
+                let completedCount = 0; // 已完成的任务数（成功+失败）
+                let successCount = 0;   // 成功的任务数
+                const total = currentSongs.length;
+                
+                // 清空活跃请求列表
+                activeXhrs.clear();
+                
+                // 初始化下载状态
+                isBatchDownloading = true;
+                const batchBtn = document.getElementById('batchDownloadBtn');
+                batchBtn.disabled = true;
+                batchBtn.innerHTML = '<span class="loading"></span> 下载中...';
+                
+                try {
+                    // 创建下载任务队列
+                    const downloadQueue = [...currentSongs];
+                    // 获取当前选中的音质
+                    const quality = document.getElementById('quality-select').value;
+                    
+                    // 并发控制函数：递归启动任务，不超过最大并发数
+                    const startNextTask = async () => {
+                        // 终止条件：队列空
+                        if (downloadQueue.length === 0) return;
+                        
+                        // 取出队列中的下一个任务
+                        const song = downloadQueue.shift();
+                        const songId = song.id || song.songId || '';
+                        const songName = song.name || song.songName || '未知歌曲';
+                        
+                        // 查找对应的歌曲元素
+                        const songItemEl = document.querySelector(`.song-item[data-id="${songId}"]`);
+                        if (!songItemEl) {
+                            // 找不到元素，直接标记完成，继续下一个任务
+                            completedCount++;
+                            return startNextTask();
+                        }
+                        
+                        // 执行单个下载任务
+                        const success = await downloadSingleSong(songId, quality, songName, songItemEl);
+                        
+                        // 任务完成后更新计数
+                        completedCount++;
+                        if (success) successCount++;
+                        
+                        // 递归启动下一个任务
+                        startNextTask();
+                    };
+                    
+                    // 批量启动初始任务（不超过最大并发数）
+                    for (let i = 0; i < MAX_CONCURRENT; i++) {
+                        startNextTask();
+                    }
+                    
+                    // 等待所有任务完成（轮询检查）
+                    await new Promise(resolve => {
+                        const checkComplete = setInterval(() => {
+                            if (completedCount >= total) {
+                                clearInterval(checkComplete);
+                                resolve();
+                            }
+                        }, 500);
+                    });
+                    
+                    // 所有任务完成后提示
+                    alert(`批量下载完成！成功: ${successCount}/${total}`);
+                    
+                } finally {
+                    // 下载结束处理
+                    isBatchDownloading = false;
+                    batchBtn.disabled = false;
+                    batchBtn.innerHTML = '批量下载本页';
+                    
+                    // 清空活跃请求列表
+                    activeXhrs.clear();
+                }
+            }
 
-                // 使用XMLHttpRequest处理下载（适配后端内存流接口）
+            // 解析处理方法 - 链接解析（返回Promise，方便异步调用）
+            function parseSingleSongHandler(id) {
+                return new Promise((resolve, reject) => {
+                    console.log('[链接解析] 开始处理，歌曲ID：', id);
+                    const button = document.getElementById('parse-button');
+                    
+                    // 调用接口
+                    const level = document.getElementById('quality-select').value;
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', '/Song_V1', true);
+                    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                    
+                    xhr.onload = function() {
+                        if (xhr.status === 200) {
+                            try {
+                                const data = JSON.parse(xhr.responseText);
+                                if (data.status === 200) {
+                                    // 显示结果卡片
+                                    resultCard.style.display = 'block';
+                                    // 切换到单曲结果模板
+                                    playlistResult.style.display = 'none';
+                                    singleResult.style.display = 'block';
+                                    
+                                    // 如果是从歌单解析进入，显示返回按钮
+                                    if (isFromPlaylistParse) {
+                                        backToPlaylistContainer.style.display = 'block';
+                                    } else {
+                                        backToPlaylistContainer.style.display = 'none';
+                                    }
+
+                                    // 设置下载所需的ID和音质
+                                    document.getElementById('download_id').value = id;
+                                    document.getElementById('download_quality').value = level;
+
+                                    // 处理库内信息
+                                    const navInfo = data.data.in_navidrome || {};
+                                    
+                                    // 标题后添加红色文字（navInfo.exists为true时）
+                                    const titleWithFlag = navInfo.exists 
+                                        ? `${data.data.name} <span style="color: #f44336; font-size: 0.8rem; margin-left: 5px;">已在库中</span>`
+                                        : data.data.name;
+                                    document.getElementById('single-song-title').innerHTML = titleWithFlag;
+
+                                    // 填充歌手信息和库内信息
+                                    let navDetails = '';
+                                    if (navInfo.exists) {
+                                        navDetails = `<span style="font-size: 0.8rem; margin-left: 5px; background: #e3f2fd; padding: 2px 6px; border-radius: 3px; color: #666;">[库内: ${navInfo.artists || '未知'} - ${navInfo.album || '未知'}]</span>`;
+                                    }
+                                    document.getElementById('single-song-artist').innerHTML = `${data.data.ar_name} ${navDetails}`;
+
+                                    // 填充专辑信息
+                                    document.getElementById('single-album').textContent = data.data.al_name;
+
+                                    // 填充时长（格式化毫秒）
+                                    document.getElementById('single-duration').textContent = formatDuration(data.data.duration);
+
+                                    // 填充音质（含MP3标记）
+                                    const qualityText = getQualityText(data.data.level);
+                                    const qualityWithMP3 = navInfo.is_mp3 
+                                        ? `${qualityText} <span style="color: #f44336; font-size: 0.8rem;">MP3</span>`
+                                        : qualityText;
+                                    document.getElementById('single-quality').innerHTML = qualityWithMP3;
+
+                                    // 填充大小
+                                    document.getElementById('single-size').textContent = data.data.size || '未知';
+
+                                    // 封面大图
+                                    showBigPicBtn.setAttribute('data-pic', data.data.pic);
+
+                                    // 初始化播放器
+                                    const container = document.getElementById('aplayer-container');
+                                    container.innerHTML = '';
+                                    new APlayer({
+                                        container: container,
+                                        lrcType: 0,  // 禁用歌词显示
+                                        audio: [{
+                                            name: data.data.name,
+                                            artist: data.data.ar_name,
+                                            url: data.data.url,
+                                            cover: data.data.pic
+                                        }]
+                                    });
+
+                                    resolve();
+                                } else {
+                                    alert(data.data.msg || '解析失败，请重试');
+                                    reject(new Error(data.data.msg || '解析失败'));
+                                }
+                            } catch (e) {
+                                alert('解析响应数据失败');
+                                reject(e);
+                            }
+                        } else {
+                            alert(`请求失败，状态码: ${xhr.status}`);
+                            reject(new Error(`请求失败，状态码: ${xhr.status}`));
+                        }
+                    };
+                    
+                    xhr.onerror = function() {
+                        alert('解析请求失败: 网络错误');
+                        reject(new Error('解析请求失败: 网络错误'));
+                    };
+                    
+                    const formData = `url=${encodeURIComponent(id)}&level=${encodeURIComponent(level)}&type=json`;
+                    xhr.send(formData);
+                });
+            }
+
+            // 渲染当前页歌曲列表
+            function renderCurrentPageSongs() {
+                if (!playlistData) return;
+                
+                // 区分歌单和专辑数据
+                const isPlaylist = !!playlistData.data.playlist; // 歌单数据标识
+                const mainData = isPlaylist 
+                    ? playlistData.data.playlist 
+                    : playlistData.data.album; // 统一数据入口
+                
+                // 兼容两种数据结构的歌曲列表和总数
+                const allSongs = mainData.songs || mainData.tracks || [];
+                const totalSongs = mainData.songCount || mainData.trackCount || allSongs.length;
+                const totalPages = Math.ceil(totalSongs / pageSize);
+                
+                // 日志适配数据类型
+                console.log(isPlaylist ? '歌单歌曲数据:' : '专辑歌曲数据:', allSongs);
+                console.log('歌曲总数:', totalSongs);
+                
+                if (allSongs.length === 0) {
+                    document.getElementById('song-list').innerHTML = 
+                        `<div style="padding: 20px; text-align: center; color: #666;">未获取到歌曲数据</div>`;
+                    return;
+                }
+                
+                // 更新统计信息
+                document.getElementById('playlist-stats').textContent = 
+                    `共${totalSongs}首（第${currentPage}页，共${totalPages}页，每页${pageSize}首）`;
+                
+                const startIndex = (currentPage - 1) * pageSize;
+                const endIndex = Math.min(startIndex + pageSize, allSongs.length);
+                const currentSongs = allSongs.slice(startIndex, endIndex);
+                
+                const songList = document.getElementById('song-list');
+                songList.innerHTML = '';
+                
+                // 歌曲项渲染逻辑
+                currentSongs.forEach(function(song, idx) {
+                    const actualIndex = startIndex + idx + 1;
+                    const navInfo = song.in_navidrome || {};
+                    let navBadges = '';
+                    
+                    if (navInfo.exists) {
+                        navBadges += '<span class="badge badge-success">库内</span>';
+                        if (navInfo.is_mp3) {
+                            navBadges += '<span class="badge badge-warning">MP3</span>';
+                        }
+                    }
+                    
+                    const songName = song.name || song.songName || '未知歌曲';
+                    const artists = song.artists || song.ar_name || '未知歌手';
+                    const album = song.album || song.albumName || '未知专辑';
+                    const picUrl = song.picUrl || song.coverImgUrl || '';
+                    const songId = song.id || song.songId || '';
+                    
+                    const songItem = document.createElement('div');
+                    songItem.className = 'song-item';
+                    songItem.setAttribute('data-id', songId);
+                    songItem.innerHTML = `
+                        <div class="song-index">${actualIndex}</div>
+                        <div class="song-info">
+                            <div>
+                                <img src="${picUrl}" alt="封面">
+                                <strong>${songName}</strong>
+                                <span style="font-size: 0.9rem; color: #666; margin-left: 5px;">
+                                    [${artists} - ${album}]
+                                </span>
+                                ${navBadges}
+                                <span class="download-status"></span>
+                            </div>
+                            <div class="song-progress">
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="song-actions">
+                            <button class="parse-song-btn btn btn-primary" 
+                                    data-id="${songId}" data-name="${songName}" style="padding: 5px 10px; font-size: 0.9rem;">
+                                解析
+                            </button>
+                        </div>
+                    `;
+                    
+                    // 添加解析按钮事件
+                    const parseBtn = songItem.querySelector('.parse-song-btn');
+                    parseBtn.addEventListener('click', () => {
+                        isFromPlaylistParse = true;
+                        parseSingleSongHandler(songId);
+                    });
+                    
+                    songList.appendChild(songItem);
+                });
+                
+                // 分页控制
+                document.getElementById('prev-page').disabled = currentPage === 1;
+                document.getElementById('next-page').disabled = currentPage === totalPages;
+                renderPageNumbers(totalPages);
+            }
+            
+            // 渲染页码
+            function renderPageNumbers(totalPages) {
+                const pageNumbersContainer = document.getElementById('page-numbers');
+                pageNumbersContainer.innerHTML = '';
+                
+                let startPage = Math.max(1, currentPage - 4);
+                let endPage = Math.min(totalPages, startPage + 9);
+                
+                if (endPage - startPage < 9 && startPage > 1) {
+                    startPage = Math.max(1, endPage - 9);
+                }
+                
+                for (let i = startPage; i <= endPage; i++) {
+                    const pageBtn = document.createElement('button');
+                    pageBtn.className = `page-item ${i === currentPage ? 'active' : ''}`;
+                    pageBtn.textContent = i;
+                    pageBtn.addEventListener('click', () => {
+                        currentPage = i;
+                        renderCurrentPageSongs();
+                    });
+                    pageNumbersContainer.appendChild(pageBtn);
+                }
+            }
+            
+            // 解析处理方法 - 歌单解析
+            function parsePlaylistHandler(id) {
+                console.log('[歌单解析] 开始处理，歌单ID：', id);
+                const button = document.getElementById('parse-button');
+                const originalText = button.innerHTML;
+                
+                button.disabled = true;
+                button.innerHTML = '<span class="loading"></span> 解析中...';
+
                 const xhr = new XMLHttpRequest();
-                xhr.open('POST', '/Download', true); // 保持与后端接口一致（区分大小写时用'/Download'）
-                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-                xhr.responseType = 'blob'; // 内存流返回的是blob类型
+                xhr.open('GET', `/Playlist?id=${encodeURIComponent(id)}`, true);
                 
-                // 监听进度事件
+                xhr.onload = function() {
+                    button.disabled = false;
+                    button.innerHTML = originalText;
+
+                    if (xhr.status === 200) {
+                        try {
+                            const data = JSON.parse(xhr.responseText);
+                            console.log('歌单接口返回数据:', data);
+                            
+                            if (data.status === 200) {
+                                playlistData = data;
+                                currentPage = 1;
+                                
+                                const pl = data.data.playlist;
+                                const totalSongs = pl.songCount || pl.trackCount || 0;
+                                
+                                resultCard.style.display = 'block';
+                                singleResult.style.display = 'none';
+                                playlistResult.style.display = 'block';
+                                backToPlaylistContainer.style.display = 'none';
+
+                                const creator = pl.creator || pl.author || '未知创作者';
+                                const createTime = pl.createTime || pl.create_time || null;
+                                document.getElementById('playlist-meta').textContent = 
+                                    `创建者：${creator}  •  歌曲数：${totalSongs}  •  创建时间：${formatDate(createTime)}`;
+                                
+                                renderCurrentPageSongs();
+                            } else {
+                                resultCard.style.display = 'block';
+                                singleResult.style.display = 'none';
+                                playlistResult.style.display = 'block';
+                                document.getElementById('song-list').innerHTML = 
+                                    `<div style="padding: 20px; text-align: center; color: #666;">歌单解析失败：${data.data.msg || '未知错误'}</div>`;
+                                document.getElementById('pagination').style.display = 'none';
+                            }
+                        } catch (e) {
+                            alert('解析歌单数据失败');
+                            console.error(e);
+                        }
+                    } else {
+                        alert(`歌单请求失败，状态码: ${xhr.status}`);
+                    }
+                };
+                
+                xhr.onerror = function() {
+                    button.disabled = false;
+                    button.innerHTML = originalText;
+                    alert('歌单解析请求失败: 网络错误');
+                };
+                
+                xhr.send();
+            }
+
+            // 解析处理方法 - 专辑解析
+            function parseAlbumHandler(id) {
+                console.log('[专辑解析] 开始处理，专辑ID：', id);
+                const button = document.getElementById('parse-button');
+                const originalText = button.innerHTML;
+                
+                // 显示加载状态
+                button.disabled = true;
+                button.innerHTML = '<span class="loading"></span> 解析中...';
+
+                // 调用专辑解析接口
+                const xhr = new XMLHttpRequest();
+                xhr.open('GET', `/Album?id=${encodeURIComponent(id)}`, true);
+                
+                xhr.onload = function() {
+                    button.disabled = false;
+                    button.innerHTML = originalText;
+
+                    if (xhr.status === 200) {
+                        try {
+                            const data = JSON.parse(xhr.responseText);
+                            console.log('专辑接口返回数据:', data);
+                            
+                            if (data.status === 200) {
+                                // 复用歌单数据变量存储专辑数据（结构兼容）
+                                playlistData = data;
+                                currentPage = 1;  // 重置页码
+                                
+                                const album = data.data.album;
+                                const totalSongs = album.songs ? album.songs.length : 0;
+                                
+                                // 显示结果卡片，切换到列表视图
+                                resultCard.style.display = 'block';
+                                singleResult.style.display = 'none';
+                                playlistResult.style.display = 'block';
+                                backToPlaylistContainer.style.display = 'none';
+
+                                // 更新专辑元信息（替代歌单的元信息）
+                                const publishTime = album.publishTime ? formatDate(album.publishTime) : '未知';
+                                document.getElementById('playlist-meta').textContent = 
+                                    `专辑名称：${album.name}  •  艺术家：${album.artist}  •  发行时间：${publishTime}  •  歌曲数：${totalSongs}`;
+                                
+                                // 渲染专辑歌曲列表（复用歌单的列表渲染逻辑）
+                                renderCurrentPageSongs();
+                            } else {
+                                // 解析失败处理
+                                resultCard.style.display = 'block';
+                                singleResult.style.display = 'none';
+                                playlistResult.style.display = 'block';
+                                document.getElementById('song-list').innerHTML = 
+                                    `<div style="padding: 20px; text-align: center; color: #666;">专辑解析失败：${data.data.msg || '未知错误'}</div>`;
+                                document.getElementById('pagination').style.display = 'none';
+                            }
+                        } catch (e) {
+                            alert('解析专辑数据失败');
+                            console.error(e);
+                        }
+                    } else {
+                        alert(`专辑请求失败，状态码: ${xhr.status}`);
+                    }
+                };
+                
+                xhr.onerror = function() {
+                    button.disabled = false;
+                    button.innerHTML = originalText;
+                    alert('专辑解析请求失败: 网络错误');
+                };
+                
+                xhr.send();
+            }
+
+            // 单首歌曲下载按钮事件
+            document.getElementById('download-btn').addEventListener('click', function() {
+                const musicId = document.getElementById('download_id').value.trim();
+                const quality = document.getElementById('download_quality').value;
+                
+                if (!musicId) {
+                    alert('请先解析音乐获取信息');
+                    return;
+                }
+                
+                let processedId = musicId;
+                const idMatch = musicId.match(/song\?id=(\d+)/);
+                if (idMatch) {
+                    processedId = idMatch[1];
+                }
+                
+                const progressBar = document.querySelector('#download-progress .progress-bar');
+                progressBar.style.width = '0%';
+                document.getElementById('download-progress').style.display = 'block';
+                const downloadBtn = document.getElementById('download-btn');
+                downloadBtn.disabled = true;
+                downloadBtn.innerHTML = '<span class="loading"></span> 下载中...';
+                
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/Download', true);
+                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                xhr.responseType = 'blob';
+                
                 xhr.addEventListener('progress', function(e) {
                     if (e.lengthComputable) {
                         const percent = (e.loaded / e.total) * 100;
@@ -1126,21 +1837,16 @@
                     }, 1000);
                 }
                 
-                // 下载完成处理（适配内存流返回的文件）
                 xhr.onload = function() {
                     clearInterval(progressInterval);
                     
                     if (xhr.status === 200) {
-                        // 下载成功：内存流返回的blob直接用于创建下载
                         progressBar.style.width = '100%';
-                        statusContainer.innerHTML = '<span class="badge badge-success">已下载</span>';
                         
-                        // 从响应头获取文件名（与后端新增的UTF-8编码头适配）
-                        const encodedFilename = xhr.getResponseHeader('X-Download-Filename') || 
-                                            xhr.getResponseHeader('Content-Disposition')?.match(/filename\*=UTF-8''(.*)/)?.[1];
-                        const filename = encodedFilename ? decodeURIComponent(encodedFilename) : `${songName}.${quality === 'lossless' ? 'flac' : 'mp3'}`;
+                        const downloadMessage = xhr.getResponseHeader('X-Download-Message');
+                        const encodedFilename = xhr.getResponseHeader('X-Download-Filename');
+                        const filename = encodedFilename ? decodeURIComponent(encodedFilename) : 'music.flac';
                         
-                        // 创建临时下载链接（内存流文件处理，原有逻辑不变）
                         const blob = xhr.response;
                         const url = window.URL.createObjectURL(blob);
                         const a = document.createElement('a');
@@ -1149,707 +1855,152 @@
                         document.body.appendChild(a);
                         a.click();
                         document.body.removeChild(a);
-                        window.URL.revokeObjectURL(url); // 释放内存
+                        window.URL.revokeObjectURL(url);
                         
-                        resolve(true);
+                        alert('✅ 音乐文件下载完成！');
                     } else {
-                        // 下载失败处理（原有逻辑不变）
-                        progressBar.style.width = '100%';
-                        progressBar.style.background = '#f44336';
-                        statusContainer.innerHTML = '<span class="badge badge-failed">下载失败</span>';
-                        resolve(false);
+                        alert('下载失败，请重试');
                     }
+                    
+                    setTimeout(() => {
+                        document.getElementById('download-progress').style.display = 'none';
+                        downloadBtn.disabled = false;
+                        downloadBtn.innerHTML = '下载音乐';
+                    }, 500);
                 };
                 
                 xhr.onerror = function() {
                     clearInterval(progressInterval);
-                    progressBar.style.width = '100%';
-                    progressBar.style.background = '#f44336';
-                    statusContainer.innerHTML = '<span class="badge badge-failed">下载失败</span>';
-                    resolve(false);
-                };
-                
-                // 发送请求（参数与后端接口保持一致）
-                const formData = `id=${encodeURIComponent(songId)}&quality=${encodeURIComponent(quality)}&format=file`;
-                xhr.send(formData);
-            });
-        }
-
-        /**
-         * 批量下载本页歌曲
-         */
-        async function batchDownloadCurrentPage() {
-            if (isBatchDownloading || !playlistData) return;
-            
-            // 获取当前页歌曲
-            const pl = playlistData.data.playlist;
-            const allSongs = pl.songs || pl.tracks || [];
-            const startIndex = (currentPage - 1) * pageSize;
-            const endIndex = Math.min(startIndex + pageSize, allSongs.length);
-            const currentSongs = allSongs.slice(startIndex, endIndex);
-            
-            if (currentSongs.length === 0) {
-                alert('当前页没有可下载的歌曲');
-                return;
-            }
-            
-            // 配置并发参数
-            const MAX_CONCURRENT = 3; // 最大同时下载数
-            let completedCount = 0; // 已完成的任务数（成功+失败）
-            let successCount = 0;   // 成功的任务数
-            const total = currentSongs.length;
-            
-            // 清空活跃请求列表
-            activeXhrs.clear();
-            
-            // 初始化下载状态
-            isBatchDownloading = true;
-            const batchBtn = document.getElementById('batchDownloadBtn');
-            batchBtn.disabled = true;
-            batchBtn.innerHTML = '<span class="loading"></span> 下载中...';
-            
-            try {
-                // 创建下载任务队列
-                const downloadQueue = [...currentSongs];
-                // 获取当前选中的音质
-                const quality = document.getElementById('quality-select').value;
-                
-                // 并发控制函数：递归启动任务，不超过最大并发数
-                const startNextTask = async () => {
-                    // 终止条件：队列空
-                    if (downloadQueue.length === 0) return;
-                    
-                    // 取出队列中的下一个任务
-                    const song = downloadQueue.shift();
-                    const songId = song.id || song.songId || '';
-                    const songName = song.name || song.songName || '未知歌曲';
-                    
-                    // 查找对应的歌曲元素
-                    const songItemEl = document.querySelector(`.song-item[data-id="${songId}"]`);
-                    if (!songItemEl) {
-                        // 找不到元素，直接标记完成，继续下一个任务
-                        completedCount++;
-                        return startNextTask();
-                    }
-                    
-                    // 执行单个下载任务
-                    const success = await downloadSingleSong(songId, quality, songName, songItemEl);
-                    
-                    // 任务完成后更新计数
-                    completedCount++;
-                    if (success) successCount++;
-                    
-                    // 递归启动下一个任务
-                    startNextTask();
-                };
-                
-                // 批量启动初始任务（不超过最大并发数）
-                for (let i = 0; i < MAX_CONCURRENT; i++) {
-                    startNextTask();
-                }
-                
-                // 等待所有任务完成（轮询检查）
-                await new Promise(resolve => {
-                    const checkComplete = setInterval(() => {
-                        if (completedCount >= total) {
-                            clearInterval(checkComplete);
-                            resolve();
-                        }
-                    }, 500);
-                });
-                
-                // 所有任务完成后提示
-                alert(`批量下载完成！成功: ${successCount}/${total}`);
-                
-            } finally {
-                // 下载结束处理
-                isBatchDownloading = false;
-                batchBtn.disabled = false;
-                batchBtn.innerHTML = '批量下载本页';
-                
-                // 清空活跃请求列表
-                activeXhrs.clear();
-            }
-        }
-
-        // 解析处理方法 - 链接解析（返回Promise，方便异步调用）
-        function parseSingleSongHandler(id) {
-            return new Promise((resolve, reject) => {
-                console.log('[链接解析] 开始处理，歌曲ID：', id);
-                const button = document.getElementById('parse-button');
-                
-                // 调用接口
-                const level = document.getElementById('quality-select').value;
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', '/Song_V1', true);
-                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-                
-                xhr.onload = function() {
-                    if (xhr.status === 200) {
-                        try {
-                            const data = JSON.parse(xhr.responseText);
-                            if (data.status === 200) {
-                                // 显示结果卡片
-                                resultCard.style.display = 'block';
-                                // 切换到单曲结果模板
-                                playlistResult.style.display = 'none';
-                                singleResult.style.display = 'block';
-                                
-                                // 如果是从歌单解析进入，显示返回按钮
-                                if (isFromPlaylistParse) {
-                                    backToPlaylistContainer.style.display = 'block';
-                                } else {
-                                    backToPlaylistContainer.style.display = 'none';
-                                }
-
-                                // 设置下载所需的ID和音质
-                                document.getElementById('download_id').value = id;
-                                document.getElementById('download_quality').value = level;
-
-                                // 处理库内信息
-                                const navInfo = data.data.in_navidrome || {};
-                                
-                                // 标题后添加红色文字（navInfo.exists为true时）
-                                const titleWithFlag = navInfo.exists 
-                                    ? `${data.data.name} <span style="color: #f44336; font-size: 0.8rem; margin-left: 5px;">已在库中</span>`
-                                    : data.data.name;
-                                document.getElementById('single-song-title').innerHTML = titleWithFlag;
-
-                                // 填充歌手信息和库内信息
-                                let navDetails = '';
-                                if (navInfo.exists) {
-                                    navDetails = `<span style="font-size: 0.8rem; margin-left: 5px; background: #e3f2fd; padding: 2px 6px; border-radius: 3px; color: #666;">[库内: ${navInfo.artists || '未知'} - ${navInfo.album || '未知'}]</span>`;
-                                }
-                                document.getElementById('single-song-artist').innerHTML = `${data.data.ar_name} ${navDetails}`;
-
-                                // 填充专辑信息
-                                document.getElementById('single-album').textContent = data.data.al_name;
-
-                                // 填充时长（格式化毫秒）
-                                document.getElementById('single-duration').textContent = formatDuration(data.data.duration);
-
-                                // 填充音质（含MP3标记）
-                                const qualityText = getQualityText(data.data.level);
-                                const qualityWithMP3 = navInfo.is_mp3 
-                                    ? `${qualityText} <span style="color: #f44336; font-size: 0.8rem;">MP3</span>`
-                                    : qualityText;
-                                document.getElementById('single-quality').innerHTML = qualityWithMP3;
-
-                                // 填充大小
-                                document.getElementById('single-size').textContent = data.data.size || '未知';
-
-                                // 封面大图
-                                showBigPicBtn.setAttribute('data-pic', data.data.pic);
-
-                                // 初始化播放器
-                                const container = document.getElementById('aplayer-container');
-                                container.innerHTML = '';
-                                new APlayer({
-                                    container: container,
-                                    lrcType: 0,  // 禁用歌词显示
-                                    audio: [{
-                                        name: data.data.name,
-                                        artist: data.data.ar_name,
-                                        url: data.data.url,
-                                        cover: data.data.pic
-                                    }]
-                                });
-
-                                resolve();
-                            } else {
-                                alert(data.data.msg || '解析失败，请重试');
-                                reject(new Error(data.data.msg || '解析失败'));
-                            }
-                        } catch (e) {
-                            alert('解析响应数据失败');
-                            reject(e);
-                        }
-                    } else {
-                        alert(`请求失败，状态码: ${xhr.status}`);
-                        reject(new Error(`请求失败，状态码: ${xhr.status}`));
-                    }
-                };
-                
-                xhr.onerror = function() {
-                    alert('解析请求失败: 网络错误');
-                    reject(new Error('解析请求失败: 网络错误'));
-                };
-                
-                const formData = `url=${encodeURIComponent(id)}&level=${encodeURIComponent(level)}&type=json`;
-                xhr.send(formData);
-            });
-        }
-
-        // 渲染当前页歌曲列表
-        function renderCurrentPageSongs() {
-            if (!playlistData) return;
-            
-            // 区分歌单和专辑数据
-            const isPlaylist = !!playlistData.data.playlist; // 歌单数据标识
-            const mainData = isPlaylist 
-                ? playlistData.data.playlist 
-                : playlistData.data.album; // 统一数据入口
-            
-            // 兼容两种数据结构的歌曲列表和总数
-            const allSongs = mainData.songs || mainData.tracks || [];
-            const totalSongs = mainData.songCount || mainData.trackCount || allSongs.length;
-            const totalPages = Math.ceil(totalSongs / pageSize);
-            
-            // 日志适配数据类型
-            console.log(isPlaylist ? '歌单歌曲数据:' : '专辑歌曲数据:', allSongs);
-            console.log('歌曲总数:', totalSongs);
-            
-            if (allSongs.length === 0) {
-                document.getElementById('song-list').innerHTML = 
-                    `<div style="padding: 20px; text-align: center; color: #666;">未获取到歌曲数据</div>`;
-                return;
-            }
-            
-            // 更新统计信息
-            document.getElementById('playlist-stats').textContent = 
-                `共${totalSongs}首（第${currentPage}页，共${totalPages}页，每页${pageSize}首）`;
-            
-            const startIndex = (currentPage - 1) * pageSize;
-            const endIndex = Math.min(startIndex + pageSize, allSongs.length);
-            const currentSongs = allSongs.slice(startIndex, endIndex);
-            
-            const songList = document.getElementById('song-list');
-            songList.innerHTML = '';
-            
-            // 歌曲项渲染逻辑
-            currentSongs.forEach(function(song, idx) {
-                const actualIndex = startIndex + idx + 1;
-                const navInfo = song.in_navidrome || {};
-                let navBadges = '';
-                
-                if (navInfo.exists) {
-                    navBadges += '<span class="badge badge-success">库内</span>';
-                    if (navInfo.is_mp3) {
-                        navBadges += '<span class="badge badge-warning">MP3</span>';
-                    }
-                }
-                
-                const songName = song.name || song.songName || '未知歌曲';
-                const artists = song.artists || song.ar_name || '未知歌手';
-                const album = song.album || song.albumName || '未知专辑';
-                const picUrl = song.picUrl || song.coverImgUrl || '';
-                const songId = song.id || song.songId || '';
-                
-                const songItem = document.createElement('div');
-                songItem.className = 'song-item';
-                songItem.setAttribute('data-id', songId);
-                songItem.innerHTML = `
-                    <div class="song-index">${actualIndex}</div>
-                    <div class="song-info">
-                        <div>
-                            <img src="${picUrl}" alt="封面">
-                            <strong>${songName}</strong>
-                            <span style="font-size: 0.9rem; color: #666; margin-left: 5px;">
-                                [${artists} - ${album}]
-                            </span>
-                            ${navBadges}
-                            <span class="download-status"></span>
-                        </div>
-                        <div class="song-progress">
-                            <div class="progress-bar-container">
-                                <div class="progress-bar" role="progressbar" style="width: 0%"></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="song-actions">
-                        <button class="parse-song-btn btn btn-primary" 
-                                data-id="${songId}" data-name="${songName}" style="padding: 5px 10px; font-size: 0.9rem;">
-                            解析
-                        </button>
-                    </div>
-                `;
-                
-                // 添加解析按钮事件
-                const parseBtn = songItem.querySelector('.parse-song-btn');
-                parseBtn.addEventListener('click', () => {
-                    isFromPlaylistParse = true;
-                    parseSingleSongHandler(songId);
-                });
-                
-                songList.appendChild(songItem);
-            });
-            
-            // 分页控制
-            document.getElementById('prev-page').disabled = currentPage === 1;
-            document.getElementById('next-page').disabled = currentPage === totalPages;
-            renderPageNumbers(totalPages);
-        }
-        
-        // 渲染页码
-        function renderPageNumbers(totalPages) {
-            const pageNumbersContainer = document.getElementById('page-numbers');
-            pageNumbersContainer.innerHTML = '';
-            
-            let startPage = Math.max(1, currentPage - 4);
-            let endPage = Math.min(totalPages, startPage + 9);
-            
-            if (endPage - startPage < 9 && startPage > 1) {
-                startPage = Math.max(1, endPage - 9);
-            }
-            
-            for (let i = startPage; i <= endPage; i++) {
-                const pageBtn = document.createElement('button');
-                pageBtn.className = `page-item ${i === currentPage ? 'active' : ''}`;
-                pageBtn.textContent = i;
-                pageBtn.addEventListener('click', () => {
-                    currentPage = i;
-                    renderCurrentPageSongs();
-                });
-                pageNumbersContainer.appendChild(pageBtn);
-            }
-        }
-        
-        // 解析处理方法 - 歌单解析
-        function parsePlaylistHandler(id) {
-            console.log('[歌单解析] 开始处理，歌单ID：', id);
-            const button = document.getElementById('parse-button');
-            const originalText = button.innerHTML;
-            
-            button.disabled = true;
-            button.innerHTML = '<span class="loading"></span> 解析中...';
-
-            const xhr = new XMLHttpRequest();
-            xhr.open('GET', `/Playlist?id=${encodeURIComponent(id)}`, true);
-            
-            xhr.onload = function() {
-                button.disabled = false;
-                button.innerHTML = originalText;
-
-                if (xhr.status === 200) {
-                    try {
-                        const data = JSON.parse(xhr.responseText);
-                        console.log('歌单接口返回数据:', data);
-                        
-                        if (data.status === 200) {
-                            playlistData = data;
-                            currentPage = 1;
-                            
-                            const pl = data.data.playlist;
-                            const totalSongs = pl.songCount || pl.trackCount || 0;
-                            
-                            resultCard.style.display = 'block';
-                            singleResult.style.display = 'none';
-                            playlistResult.style.display = 'block';
-                            backToPlaylistContainer.style.display = 'none';
-
-                            const creator = pl.creator || pl.author || '未知创作者';
-                            const createTime = pl.createTime || pl.create_time || null;
-                            document.getElementById('playlist-meta').textContent = 
-                                `创建者：${creator}  •  歌曲数：${totalSongs}  •  创建时间：${formatDate(createTime)}`;
-                            
-                            renderCurrentPageSongs();
-                        } else {
-                            resultCard.style.display = 'block';
-                            singleResult.style.display = 'none';
-                            playlistResult.style.display = 'block';
-                            document.getElementById('song-list').innerHTML = 
-                                `<div style="padding: 20px; text-align: center; color: #666;">歌单解析失败：${data.data.msg || '未知错误'}</div>`;
-                            document.getElementById('pagination').style.display = 'none';
-                        }
-                    } catch (e) {
-                        alert('解析歌单数据失败');
-                        console.error(e);
-                    }
-                } else {
-                    alert(`歌单请求失败，状态码: ${xhr.status}`);
-                }
-            };
-            
-            xhr.onerror = function() {
-                button.disabled = false;
-                button.innerHTML = originalText;
-                alert('歌单解析请求失败: 网络错误');
-            };
-            
-            xhr.send();
-        }
-
-        // 解析处理方法 - 专辑解析
-        function parseAlbumHandler(id) {
-            console.log('[专辑解析] 开始处理，专辑ID：', id);
-            const button = document.getElementById('parse-button');
-            const originalText = button.innerHTML;
-            
-            // 显示加载状态
-            button.disabled = true;
-            button.innerHTML = '<span class="loading"></span> 解析中...';
-
-            // 调用专辑解析接口
-            const xhr = new XMLHttpRequest();
-            xhr.open('GET', `/Album?id=${encodeURIComponent(id)}`, true);
-            
-            xhr.onload = function() {
-                button.disabled = false;
-                button.innerHTML = originalText;
-
-                if (xhr.status === 200) {
-                    try {
-                        const data = JSON.parse(xhr.responseText);
-                        console.log('专辑接口返回数据:', data);
-                        
-                        if (data.status === 200) {
-                            // 复用歌单数据变量存储专辑数据（结构兼容）
-                            playlistData = data;
-                            currentPage = 1;  // 重置页码
-                            
-                            const album = data.data.album;
-                            const totalSongs = album.songs ? album.songs.length : 0;
-                            
-                            // 显示结果卡片，切换到列表视图
-                            resultCard.style.display = 'block';
-                            singleResult.style.display = 'none';
-                            playlistResult.style.display = 'block';
-                            backToPlaylistContainer.style.display = 'none';
-
-                            // 更新专辑元信息（替代歌单的元信息）
-                            const publishTime = album.publishTime ? formatDate(album.publishTime) : '未知';
-                            document.getElementById('playlist-meta').textContent = 
-                                `专辑名称：${album.name}  •  艺术家：${album.artist}  •  发行时间：${publishTime}  •  歌曲数：${totalSongs}`;
-                            
-                            // 渲染专辑歌曲列表（复用歌单的列表渲染逻辑）
-                            renderCurrentPageSongs();
-                        } else {
-                            // 解析失败处理
-                            resultCard.style.display = 'block';
-                            singleResult.style.display = 'none';
-                            playlistResult.style.display = 'block';
-                            document.getElementById('song-list').innerHTML = 
-                                `<div style="padding: 20px; text-align: center; color: #666;">专辑解析失败：${data.data.msg || '未知错误'}</div>`;
-                            document.getElementById('pagination').style.display = 'none';
-                        }
-                    } catch (e) {
-                        alert('解析专辑数据失败');
-                        console.error(e);
-                    }
-                } else {
-                    alert(`专辑请求失败，状态码: ${xhr.status}`);
-                }
-            };
-            
-            xhr.onerror = function() {
-                button.disabled = false;
-                button.innerHTML = originalText;
-                alert('专辑解析请求失败: 网络错误');
-            };
-            
-            xhr.send();
-        }
-
-        // 单首歌曲下载按钮事件
-        document.getElementById('download-btn').addEventListener('click', function() {
-            const musicId = document.getElementById('download_id').value.trim();
-            const quality = document.getElementById('download_quality').value;
-            
-            if (!musicId) {
-                alert('请先解析音乐获取信息');
-                return;
-            }
-            
-            let processedId = musicId;
-            const idMatch = musicId.match(/song\?id=(\d+)/);
-            if (idMatch) {
-                processedId = idMatch[1];
-            }
-            
-            const progressBar = document.querySelector('#download-progress .progress-bar');
-            progressBar.style.width = '0%';
-            document.getElementById('download-progress').style.display = 'block';
-            const downloadBtn = document.getElementById('download-btn');
-            downloadBtn.disabled = true;
-            downloadBtn.innerHTML = '<span class="loading"></span> 下载中...';
-            
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', '/Download', true);
-            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-            xhr.responseType = 'blob';
-            
-            xhr.addEventListener('progress', function(e) {
-                if (e.lengthComputable) {
-                    const percent = (e.loaded / e.total) * 100;
-                    progressBar.style.width = percent + '%';
-                }
-            });
-            
-            // 模拟进度（如果真实进度不可用）
-            let progressInterval;
-            if (!xhr.upload) {
-                let simulatedProgress = 0;
-                progressInterval = setInterval(() => {
-                    if (simulatedProgress < 90) {
-                        simulatedProgress += Math.random() * 5;
-                        progressBar.style.width = simulatedProgress + '%';
-                    }
-                }, 1000);
-            }
-            
-            xhr.onload = function() {
-                clearInterval(progressInterval);
-                
-                if (xhr.status === 200) {
-                    progressBar.style.width = '100%';
-                    
-                    const downloadMessage = xhr.getResponseHeader('X-Download-Message');
-                    const encodedFilename = xhr.getResponseHeader('X-Download-Filename');
-                    const filename = encodedFilename ? decodeURIComponent(encodedFilename) : 'music.flac';
-                    
-                    const blob = xhr.response;
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    window.URL.revokeObjectURL(url);
-                    
-                    alert('✅ 音乐文件下载完成！');
-                } else {
-                    alert('下载失败，请重试');
-                }
-                
-                setTimeout(() => {
+                    alert('下载出错，请重试');
                     document.getElementById('download-progress').style.display = 'none';
                     downloadBtn.disabled = false;
                     downloadBtn.innerHTML = '下载音乐';
-                }, 500);
-            };
+                };
+                
+                const formData = `id=${encodeURIComponent(processedId)}&quality=${encodeURIComponent(quality)}`;
+                xhr.send(formData);
+            });
             
-            xhr.onerror = function() {
-                clearInterval(progressInterval);
-                alert('下载出错，请重试');
-                document.getElementById('download-progress').style.display = 'none';
-                downloadBtn.disabled = false;
-                downloadBtn.innerHTML = '下载音乐';
-            };
+            // 批量下载按钮事件
+            document.getElementById('batchDownloadBtn').addEventListener('click', batchDownloadCurrentPage);
             
-            const formData = `id=${encodeURIComponent(processedId)}&quality=${encodeURIComponent(quality)}`;
-            xhr.send(formData);
-        });
-        
-        // 批量下载按钮事件
-        document.getElementById('batchDownloadBtn').addEventListener('click', batchDownloadCurrentPage);
-        
-        // 返回歌单列表按钮事件
-        backToPlaylistBtn.addEventListener('click', () => {
-            if (playlistData) {
-                singleResult.style.display = 'none';
-                playlistResult.style.display = 'block';
-                backToPlaylistContainer.style.display = 'none';
-                isFromPlaylistParse = false;
-                // 滚动到歌单列表顶部
-                playlistResult.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
-        });
-        
-        // 分页控制事件
-        document.getElementById('prev-page').addEventListener('click', () => {
-            if (currentPage > 1) {
-                currentPage--;
-                renderCurrentPageSongs();
-            }
-        });
-        
-        document.getElementById('next-page').addEventListener('click', () => {
-            if (playlistData) {
-                const pl = playlistData.data.playlist;
-                const totalSongs = pl.songCount || pl.trackCount || (pl.songs || pl.tracks || []).length;
-                const totalPages = Math.ceil(totalSongs / pageSize);
-                if (currentPage < totalPages) {
-                    currentPage++;
+            // 返回歌单列表按钮事件
+            backToPlaylistBtn.addEventListener('click', () => {
+                if (playlistData) {
+                    singleResult.style.display = 'none';
+                    playlistResult.style.display = 'block';
+                    backToPlaylistContainer.style.display = 'none';
+                    isFromPlaylistParse = false;
+                    // 滚动到歌单列表顶部
+                    playlistResult.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+            
+            // 分页控制事件
+            document.getElementById('prev-page').addEventListener('click', () => {
+                if (currentPage > 1) {
+                    currentPage--;
                     renderCurrentPageSongs();
                 }
-            }
-        });
-        
-        // 提取ID从URL
-        function extractIdFromUrl(input, type) {
-            let id = '';
-            if (input.includes('http')) {
-                if (type === '链接解析' && (input.includes('song') || input.includes('music.163.com'))) {
-                    const match = input.match(/song\?id=(\d+)/) || input.match(/\/(\d+)\//);
-                    if (match && match[1]) id = match[1];
-                } else if (type === '歌单解析' && input.includes('playlist')) {
-                    const match = input.match(/playlist\?id=(\d+)/);
-                    if (match && match[1]) id = match[1];
-                } else if (type === '专辑解析' && input.includes('album')) {
-                    const match = input.match(/album\?id=(\d+)/);
-                    if (match && match[1]) id = match[1];
+            });
+            
+            document.getElementById('next-page').addEventListener('click', () => {
+                if (playlistData) {
+                    const pl = playlistData.data.playlist;
+                    const totalSongs = pl.songCount || pl.trackCount || (pl.songs || pl.tracks || []).length;
+                    const totalPages = Math.ceil(totalSongs / pageSize);
+                    if (currentPage < totalPages) {
+                        currentPage++;
+                        renderCurrentPageSongs();
+                    }
                 }
+            });
+            
+            // 提取ID从URL
+            function extractIdFromUrl(input, type) {
+                let id = '';
+                if (input.includes('http')) {
+                    if (type === '链接解析' && (input.includes('song') || input.includes('music.163.com'))) {
+                        const match = input.match(/song\?id=(\d+)/) || input.match(/\/(\d+)\//);
+                        if (match && match[1]) id = match[1];
+                    } else if (type === '歌单解析' && input.includes('playlist')) {
+                        const match = input.match(/playlist\?id=(\d+)/);
+                        if (match && match[1]) id = match[1];
+                    } else if (type === '专辑解析' && input.includes('album')) {
+                        const match = input.match(/album\?id=(\d+)/);
+                        if (match && match[1]) id = match[1];
+                    }
+                }
+                
+                if (!id && /^\d+$/.test(input.trim())) {
+                    id = input.trim();
+                }
+                
+                return id;
             }
             
-            if (!id && /^\d+$/.test(input.trim())) {
-                id = input.trim();
-            }
+            // 解析按钮点击事件
+            document.getElementById('parse-button').addEventListener('click', () => {
+                const input = parseInput.value.trim();
+                const activeParseOption = document.querySelector('.parse-option.active');
+                const type = activeParseOption ? activeParseOption.getAttribute('data-type') : '链接解析';
+
+                if (!input) {
+                    parseInput.style.borderColor = '#f44336';
+                    setTimeout(() => parseInput.style.borderColor = '#ddd', 1000);
+                    return;
+                }
+
+                const id = extractIdFromUrl(input, type);
+                if (!id) {
+                    alert('无法从输入中提取有效的ID，请检查输入是否正确');
+                    return;
+                }
+
+                // 重置标记
+                isFromPlaylistParse = false;
+                
+                switch (type) {
+                    case '链接解析':
+                        parseSingleSongHandler(id);
+                        break;
+                    case '歌单解析':
+                        parsePlaylistHandler(id);
+                        break;
+                    case '专辑解析':
+                        parseAlbumHandler(id);
+                        break;
+                    default:
+                        console.log('未知解析类型：', type);
+                }
+            });
             
-            return id;
-        }
-        
-        // 解析按钮点击事件
-        document.getElementById('parse-button').addEventListener('click', () => {
-            const input = parseInput.value.trim();
-            const activeParseOption = document.querySelector('.parse-option.active');
-            const type = activeParseOption ? activeParseOption.getAttribute('data-type') : '链接解析';
-
-            if (!input) {
-                parseInput.style.borderColor = '#f44336';
-                setTimeout(() => parseInput.style.borderColor = '#ddd', 1000);
-                return;
-            }
-
-            const id = extractIdFromUrl(input, type);
-            if (!id) {
-                alert('无法从输入中提取有效的ID，请检查输入是否正确');
-                return;
-            }
-
-            // 重置标记
-            isFromPlaylistParse = false;
+            // 支持回车键解析
+            parseInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    document.getElementById('parse-button').click();
+                }
+            });
             
-            switch (type) {
-                case '链接解析':
-                    parseSingleSongHandler(id);
-                    break;
-                case '歌单解析':
-                    parsePlaylistHandler(id);
-                    break;
-                case '专辑解析':
-                    parseAlbumHandler(id);
-                    break;
-                default:
-                    console.log('未知解析类型：', type);
-            }
-        });
-        
-        // 支持回车键解析
-        parseInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                document.getElementById('parse-button').click();
-            }
-        });
-        
-        // 显示大图
-        showBigPicBtn.addEventListener('click', () => {
-            const picUrl = showBigPicBtn.getAttribute('data-pic');
-            if (picUrl) {
-                bigPicImg.src = picUrl;
-                bigPicModal.style.display = 'flex';
-            }
-        });
-        
-        // 关闭大图
-        closeBigPic.addEventListener('click', () => {
-            bigPicModal.style.display = 'none';
-        });
-        
-        bigPicModal.addEventListener('click', (e) => {
-            if (e.target === bigPicModal) {
+            // 显示大图
+            showBigPicBtn.addEventListener('click', () => {
+                const picUrl = showBigPicBtn.getAttribute('data-pic');
+                if (picUrl) {
+                    bigPicImg.src = picUrl;
+                    bigPicModal.style.display = 'flex';
+                }
+            });
+            
+            // 关闭大图
+            closeBigPic.addEventListener('click', () => {
                 bigPicModal.style.display = 'none';
-            }
+            });
+            
+            bigPicModal.addEventListener('click', (e) => {
+                if (e.target === bigPicModal) {
+                    bigPicModal.style.display = 'none';
+                }
+            });
         });
     </script>
 </body>

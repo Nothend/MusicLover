@@ -79,19 +79,23 @@
 import base64
 from io import BytesIO
 import json
-from tkinter import Image
 import urllib.parse
 import time
 from random import randrange
 from typing import Dict, List, Optional, Tuple, Any
 from hashlib import md5
 from enum import Enum
-
-import qrcode
 import requests
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from datetime import datetime
+
+try:
+    import qrcode
+    from PIL import Image
+except ImportError:
+    qrcode = None
+    Image = None
 
 class QualityLevel(Enum):
     """音质等级枚举"""
@@ -123,6 +127,8 @@ class APIConstants:
 
     #// 个人歌单
     PERSONAL_PLAYLIST_API='https://music.163.com/api/user/playlist'
+
+    QR_LOGIN_CHECK = 'https://music.163.com/login?csrf_token='
 
     
     # 默认配置
@@ -831,43 +837,45 @@ class QRLoginManager:
     def check_login_status(self, qr_key: str) -> Dict[str, Any]:
         """检查二维码登录状态"""
         try:
-            if not qr_key:
-                return {'success': False, 'message': '二维码key不能为空'}
+            config = APIConstants.DEFAULT_CONFIG.copy()
+            config["requestId"] = str(randrange(20000000, 30000000))
             
-            url = 'https://music.163.com/login?csrf_token='
-            params = {
-                'type': '1',
-                'csrf_token': '',
-                'qrKey': qr_key
+            payload = {
+                'key': qr_key,
+                'type': 1,
+                'header': json.dumps(config)
             }
             
-            response = self.session.post(url, params=params, headers=self.headers)
-            if response.status_code != 200:
-                return {'success': False, 'message': f'检查登录状态失败，状态码：{response.status_code}'}
+            params = self.crypto_utils.encrypt_params(APIConstants.QR_LOGIN_API, payload)
+            response = self.http_client.post_request_full(APIConstants.QR_LOGIN_API, params, {})
             
-            data = response.json()
-            self.login_status = data.get('data', {}).get('code')
+            result = json.loads(response.text)
+            cookie_dict = {}
             
+            self.login_status = result.get('code', -1)
+
             # 状态码说明：
             # 800 - 二维码已过期
             # 801 - 等待扫码
             # 802 - 已扫码待确认
             # 803 - 登录成功
             
-            result = {
+            res = {
                 'success': True,
                 'status_code': self.login_status,
                 'message': self._get_status_message(self.login_status)
             }
-            
-            # 登录成功时获取cookie
-            if self.login_status == 803:
-                cookies = self.session.cookies.get_dict()
-                cookie_str = '; '.join([f'{k}={v}' for k, v in cookies.items()])
-                result['cookie'] = cookie_str
-            
-            return result
-            
+
+            if result.get('code') == 803:
+                # 登录成功，提取cookie
+                all_cookies = response.headers.get('Set-Cookie', '').split(', ')
+                for cookie_str in all_cookies:
+                    if 'MUSIC_U=' in cookie_str:
+                        cookie_dict['MUSIC_U'] = cookie_str.split('MUSIC_U=')[1].split(';')[0]
+
+                res['cookie'] = cookie_dict['MUSIC_U']
+            return res
+           
         except Exception as e:
             return {'success': False, 'message': f'检查登录状态时发生错误：{str(e)}'}
     
