@@ -25,7 +25,7 @@ from navidrome import NavidromeClient
 
 try:
     from music_api import (
-        NeteaseAPI, APIException, QualityLevel,
+        NeteaseAPI, APIException, QualityLevel,QRLoginManager,
         url_v1, name_v1, lyric_v1, search_music, 
         playlist_detail, album_detail,user_playlist
     )
@@ -86,6 +86,7 @@ class MusicAPIService:
         self.logger = self._setup_logger()
         self.cookie_manager = CookieManager(user_config)
         self.netease_api = NeteaseAPI()
+        self.qr_manager=QRLoginManager()
         
         self.use_navidrome=user_config.is_enabled('NAVIDROME')
         
@@ -766,6 +767,45 @@ def download_music_api():
         api_service.logger.error(f"下载音乐异常: {e}\n{traceback.format_exc()}")
         return APIResponse.error(f"下载异常: {str(e)}", 500)
 
+# 新增：二维码登录相关接口
+@app.route('/api/qr/generate', methods=['GET'])
+def generate_qr():
+    """生成登录二维码"""
+    try:
+        result = api_service.qr_manager.create_qr_code()
+        if result['success']:
+            return APIResponse.success(result, "二维码生成成功")
+        else:
+            return APIResponse.error(result['message'], 500)
+    except Exception as e:
+        api_service.logger.error(f"生成二维码异常: {e}")
+        return APIResponse.error(f"生成二维码失败: {str(e)}", 500)
+
+
+@app.route('/api/qr/check', methods=['GET'])
+def check_qr_status():
+    """检查二维码登录状态"""
+    try:
+        qr_key = request.args.get('qr_key')
+        if not qr_key:
+            return APIResponse.error("缺少qr_key参数", 400)
+        
+        result = api_service.qr_manager.check_login_status(qr_key)
+        if result['success']:
+            # 如果登录成功，保存cookie
+            if result.get('status_code') == 803 and 'cookie' in result:
+                try:
+                    #api_service.cookie_manager.write_cookie(result['cookie'])
+                    api_service.logger.info("登录成功，已保存cookie")
+                except Exception as e:
+                    api_service.logger.warning(f"保存cookie失败: {e}")
+            
+            return APIResponse.success(result, "检查二维码状态成功")
+        else:
+            return APIResponse.error(result['message'], 500)
+    except Exception as e:
+        api_service.logger.error(f"检查二维码状态异常: {e}")
+        return APIResponse.error(f"检查二维码状态失败: {str(e)}", 500)
 
 @app.route('/api/info', methods=['GET'])
 def api_info():
