@@ -2,10 +2,8 @@
 
 version: '3.8'
 services:
-  musiclover:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  netease-music-sync:
+    image: leonautilus/musiclover:latest
     container_name: musiclover
     restart: always
     ports:
@@ -15,5 +13,3 @@ services:
       - ./logs:/app/logs  # 日志目录映射
     environment:
       - TZ=Asia/Shanghai  # 设置时区
-      - REMOTE_REPO=https://github.com/Nothend/MusicLover.git
-      - SYNC_INTERVAL=0 3 * * 0  # 每周日凌晨3点
