@@ -17,7 +17,7 @@ downloads/
 logs/
 
 #忽略自用config.yaml
-config.yaml
+/config.yaml
 docker-compose.test.yml
 Dockerfile.dev
 Dockerfile
