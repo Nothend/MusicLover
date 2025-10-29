@@ -89,7 +89,7 @@ class MusicAPIService:
         self.qr_manager=QRLoginManager()
         
         self.use_navidrome=user_config.is_enabled('NAVIDROME')
-        
+        self.quality_level = self._user_config.get("QUALITY_LEVEL", "lossless")
         # 创建下载目录
         self.downloads_path = Path("/app/downloads")
         self.downloads_path.mkdir(exist_ok=True)
