@@ -1256,25 +1256,37 @@
                     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
                     xhr.responseType = 'blob'; // 内存流返回的是blob类型
                     
-                    // 监听进度事件
+                    // 新增：设置超时时间（10分钟，适配大文件）
+                    xhr.timeout = 600000; // 单位：毫秒（10分钟）
+
+                    // 新增：监听超时事件，确保Promise resolve
+                    xhr.ontimeout = function() {
+                        clearInterval(progressInterval); // 清除模拟进度
+                        progressBar.style.width = '100%';
+                        progressBar.style.background = '#f44336';
+                        statusContainer.innerHTML = '<span class="badge badge-failed">下载超时</span>';
+                        resolve(false); // 必须resolve，否则计数卡住
+                    };
+
+                    // 真实进度事件（同步模拟进度，避免冲突）
                     xhr.addEventListener('progress', function(e) {
                         if (e.lengthComputable) {
                             const percent = (e.loaded / e.total) * 100;
                             progressBar.style.width = percent + '%';
+                            simulatedProgress = percent; // 同步模拟进度值
                         }
                     });
                     
                     // 模拟进度（如果真实进度不可用）
                     let progressInterval;
-                    if (!xhr.upload) {
-                        let simulatedProgress = 0;
-                        progressInterval = setInterval(() => {
-                            if (simulatedProgress < 90) {
-                                simulatedProgress += Math.random() * 5;
-                                progressBar.style.width = simulatedProgress + '%';
-                            }
-                        }, 1000);
-                    }
+                    let simulatedProgress = 0;
+                    progressInterval = setInterval(() => {
+                        // 真实进度优先，模拟进度作为补充（不超过90%）
+                        if (simulatedProgress < 90) {
+                            simulatedProgress += 0.3; // 缓慢增长，避免误导
+                            progressBar.style.width = simulatedProgress + '%';
+                        }
+                    }, 1000);
                     
                     // 下载完成处理（适配内存流返回的文件）
                     xhr.onload = function() {
