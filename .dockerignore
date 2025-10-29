@@ -20,3 +20,5 @@ __pycache__/
 # 排除根目录的config.yaml
 config.yaml
 docker-compose.test.yml
+Dockerfile
+entrypoint.sh
