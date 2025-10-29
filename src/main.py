@@ -22,6 +22,7 @@ from config import Config
 from urllib.parse import quote
 import time
 from navidrome import NavidromeClient
+from logger import setup_logger
 
 try:
     from music_api import (
@@ -83,7 +84,6 @@ class MusicAPIService:
     
     def __init__(self, user_config:Config):
         self._user_config=user_config
-        self.logger = self._setup_logger()
         self.cookie_manager = CookieManager(user_config)
         self.netease_api = NeteaseAPI()
         self.qr_manager=QRLoginManager()
@@ -91,41 +91,16 @@ class MusicAPIService:
         self.use_navidrome=user_config.is_enabled('NAVIDROME')
         
         # 创建下载目录
-        self.downloads_path = Path(user_config.downloads_dir)
+        self.downloads_path = Path("/app/downloads")
         self.downloads_path.mkdir(exist_ok=True)
         
-        self.logger.info(f"音乐API服务初始化完成，下载目录: {self.downloads_path.absolute()}")
-        self.downloader = MusicDownloader(self.cookie_manager.parse_cookie_string(self.cookie_manager.cookie_string), user_config.downloads_dir)
+        self.logger = logging.getLogger(__name__)
+        self.logger.info(f"下载目录已设置为: /app/downloads")
+        self.logger.info(f"下载音乐品质已设置为: { {"standard": "标准", "exhigh": "极高", "lossless": "无损", "hires": "Hi-Res", "sky": "沉浸环绕声", "jyeffect": "高清环绕声", "jymaster": "超清母带"}.get (self.quality_level, "未知品质")}")
+        self.downloader = MusicDownloader(self.cookie_manager.parse_cookie_string(self.cookie_manager.cookie_string), "/app/downloads")
     @property
     def user_config(self) -> Config:
         return self._user_config
-    
-    def _setup_logger(self) -> logging.Logger:
-        """设置日志记录器"""
-        logger = logging.getLogger('music_api')
-        logger.setLevel(getattr(logging, user_config.log_level.upper()))
-        
-        if not logger.handlers:
-            # 控制台处理器
-            console_handler = logging.StreamHandler()
-            console_formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
-            console_handler.setFormatter(console_formatter)
-            logger.addHandler(console_handler)
-            
-            # 文件处理器
-            try:
-                file_handler = logging.FileHandler('music_api.log', encoding='utf-8')
-                file_formatter = logging.Formatter(
-                    '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
-                )
-                file_handler.setFormatter(file_formatter)
-                logger.addHandler(file_handler)
-            except Exception as e:
-                logger.warning(f"无法创建日志文件: {e}")
-        
-        return logger
     
     def _get_cookies(self) -> Dict[str, str]:
         """获取Cookie"""
@@ -864,7 +839,12 @@ def start_api_server():
         print("="*60)
         print(f"⏰ 启动时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print("🌟 服务已就绪，等待请求...\n")
-        
+        config = Config()
+        # 初始化日志
+        level = config.get("LEVEL", "INFO")
+        # 用 getattr 替代 logging.getLevelName，获取日志级别常量
+        log_level = getattr(logging, level, logging.INFO)  # 若级别无效，默认使用 INFO
+        setup_logger(log_level)
         # 启动Flask应用
         app.run(
             host=user_config.web_host,
@@ -876,7 +856,7 @@ def start_api_server():
     except KeyboardInterrupt:
         print("\n\n👋 服务已停止")
     except Exception as e:
-        api_service.logger.error(f"启动服务失败: {e}")
+        logging.error(f"程序启动失败: {str(e)}", exc_info=True)
         print(f"❌ 启动失败: {e}")
         sys.exit(1)
 

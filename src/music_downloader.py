@@ -85,12 +85,10 @@ class DownloadException(Exception):
     pass
 
 # 配置日志，方便调试
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
 class MusicDownloader:
     """音乐下载器主类"""
     
-    def __init__(self,cookies: Dict[str, str], download_dir: str = "downloads", max_concurrent: int = 3):
+    def __init__(self,cookies: Dict[str, str], download_dir: str = "/app/downloads", max_concurrent: int = 3):
         """
         初始化音乐下载器
         
@@ -116,6 +114,9 @@ class MusicDownloader:
             'flac': AudioFormat.FLAC,
             'm4a': AudioFormat.M4A
         }
+        self.logger = logging.getLogger(__name__)
+
+
     def get_sanitize_filename(self, filename: str) -> str:
         """公开的文件名清理方法
         
@@ -670,7 +671,7 @@ class MusicDownloader:
             audio_data.seek(0, 2)  # 移到末尾
             data_size = audio_data.tell()  # 获取数据大小
             if data_size == 0:
-                logger.error("原始音频数据为空，无法写入标签")
+                self.logger.error("原始音频数据为空，无法写入标签")
                 return audio_data
             # 将BytesIO内容转换为mutagen可处理的文件对象
             audio_data.seek(0)  # 确保从开头读取
@@ -688,7 +689,7 @@ class MusicDownloader:
             temp_io.seek(0, 2)
             new_size = temp_io.tell()
             if new_size == 0:
-                logger.error("标签写入后内存流为空，返回原始数据")
+                self.logger.error("标签写入后内存流为空，返回原始数据")
                 audio_data.seek(0)
                 return audio_data
 
@@ -696,7 +697,7 @@ class MusicDownloader:
             return temp_io
             
         except Exception as e:
-            logger.error(f"内存写入标签失败: {str(e)}", exc_info=True)
+            self.logger.error(f"内存写入标签失败: {str(e)}", exc_info=True)
             audio_data.seek(0)
             return audio_data
 
@@ -705,7 +706,7 @@ class MusicDownloader:
         try:
             # 关键：确保指针在开头，否则ID3可能读不到数据
             io.seek(0)
-            logger.debug(f"MP3标签写入前，内存流位置: {io.tell()}")
+            self.logger.debug(f"MP3标签写入前，内存流位置: {io.tell()}")
             try:
                 audio = ID3(io)  # 读取现有标签（若无则创建）
             except:
@@ -734,23 +735,23 @@ class MusicDownloader:
                             desc=u'Cover',
                             data=cover_response.content
                         )
-                    logger.debug("成功添加MP3封面")
+                    self.logger.debug("成功添加MP3封面")
                 except Exception as e:
-                    logger.error(f"获取MP3封面失败: {e}")
+                    self.logger.error(f"获取MP3封面失败: {e}")
 
             # 关键：保存前确保指针在开头，显式指定fileobj
             io.seek(0)
             audio.save(fileobj=io)
-            logger.debug(f"MP3标签保存成功，内存流位置: {io.tell()}")        
+            self.logger.debug(f"MP3标签保存成功，内存流位置: {io.tell()}")        
         except Exception as e:
-            logger.error(f"MP3标签写入失败: {str(e)}", exc_info=True)
+            self.logger.error(f"MP3标签写入失败: {str(e)}", exc_info=True)
 
     def _write_flac_tags_memory(self, io: BytesIOType, music_info: MusicInfo):
         """写入FLAC标签"""
         try:
             # 确保指针在开头
             io.seek(0)
-            logger.debug(f"FLAC标签写入前，内存流位置: {io.tell()}")
+            self.logger.debug(f"FLAC标签写入前，内存流位置: {io.tell()}")
             audio = FLAC(io)
             
             audio['TITLE'] = music_info.name
@@ -769,9 +770,9 @@ class MusicDownloader:
                     audio['DATE'] = full_date  # 完整日期
                     audio['YEAR'] = full_date.split('-')[0]  # 提取年份
                 else:
-                    logger.warning(f"publishTime格式错误（需YYYY-MM-DD），实际值: {full_date}，跳过日期标签")
+                    self.logger.warning(f"publishTime格式错误（需YYYY-MM-DD），实际值: {full_date}，跳过日期标签")
             else:
-                logger.debug("publishTime为空，跳过日期标签")
+                self.logger.debug("publishTime为空，跳过日期标签")
             # 新增：歌词标签（使用自定义字段存储歌词和翻译歌词）
             if music_info.lyric:
                 audio['LYRICS'] = music_info.lyric.strip()  # 原歌词
@@ -792,21 +793,21 @@ class MusicDownloader:
                     picture.data = pic_response.content
                     audio.add_picture(picture)
                 except Exception as e:
-                    logger.error(f"获取FLAC封面失败: {e}")
+                    self.logger.error(f"获取FLAC封面失败: {e}")
             
             # 保存前重置指针
             io.seek(0)
             audio.save(fileobj=io)
-            logger.debug(f"FLAC标签保存成功，内存流位置: {io.tell()}")
+            self.logger.debug(f"FLAC标签保存成功，内存流位置: {io.tell()}")
         except Exception as e:
-            logger.error(f"FLAC标签写入失败: {str(e)}", exc_info=True)
+            self.logger.error(f"FLAC标签写入失败: {str(e)}", exc_info=True)
 
     def _write_m4a_tags_memory(self, io: BytesIOType, music_info: MusicInfo):
         """写入M4A标签"""
         try:
             # 确保指针在开头
             io.seek(0)
-            logger.debug(f"M4A标签写入前，内存流位置: {io.tell()}")
+            self.logger.debug(f"M4A标签写入前，内存流位置: {io.tell()}")
             audio = MP4(io)
             
             audio['\xa9nam'] = music_info.name
@@ -824,14 +825,14 @@ class MusicDownloader:
                     pic_response.raise_for_status()
                     audio['covr'] = [pic_response.content]
                 except Exception as e:
-                    logger.error(f"获取M4A封面失败: {e}")
+                    self.logger.error(f"获取M4A封面失败: {e}")
             
             # 保存前重置指针
             io.seek(0)
             audio.save(fileobj=io)
-            logger.debug(f"M4A标签保存成功，内存流位置: {io.tell()}")
+            self.logger.debug(f"M4A标签保存成功，内存流位置: {io.tell()}")
         except Exception as e:
-            logger.error(f"M4A标签写入失败: {str(e)}", exc_info=True)
+            self.logger.error(f"M4A标签写入失败: {str(e)}", exc_info=True)
 
     def convert_to_music_info(self,music_info_dict: dict) -> MusicInfo:
         """
