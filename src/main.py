@@ -770,7 +770,7 @@ def check_qr_status():
             # 如果登录成功，保存cookie
             if result.get('status_code') == 803 and 'cookie' in result:
                 try:
-                    #api_service.cookie_manager.write_cookie(result['cookie'])
+                    api_service.cookie_manager.update_cookie(result['cookie'])
                     api_service.logger.info("登录成功，已保存cookie")
                 except Exception as e:
                     api_service.logger.warning(f"保存cookie失败: {e}")

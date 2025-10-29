@@ -44,6 +44,7 @@ class CookieManager:
         """初始化Cookie管理器（无文件依赖）"""
         self.cookie_string: str = "" # 存储原始Cookie字符串
         self.parsed_cookies: Dict[str, str] = []  # 解析后的Cookie字典
+        self.config = config
         self.set_cookie_string(config.get("cookie"))
         # 网易云音乐相关的重要Cookie字段
         self.important_cookies = {
@@ -159,7 +160,7 @@ class CookieManager:
             existing_cookies = self.parsed_cookies.copy()
             
             # 合并Cookie
-            existing_cookies.update(new_cookies)
+            existing_cookies.update({'MUSIC_U':new_cookies})
             
             # 转换为Cookie字符串
             cookie_string = self.format_cookie_string(existing_cookies)
