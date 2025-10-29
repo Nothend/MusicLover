@@ -22,3 +22,5 @@ config.yaml
 docker-compose.test.yml
 Dockerfile
 entrypoint.sh
+web1.png
+web2.png
