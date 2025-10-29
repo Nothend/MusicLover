@@ -9,6 +9,7 @@
 """
 
 from concurrent.futures import ThreadPoolExecutor
+import os
 import re
 import asyncio
 import threading
@@ -926,6 +927,15 @@ class MusicDownloader:
                 'completed': False
             }
 
+    # 动态获取配置文件路径：
+    # 本地调试时，通过环境变量指定本地路径；Docker中使用默认的/app/downloads路径
+    def get_config_path():
+        # 优先读取环境变量"CONFIG_PATH"（本地调试时设置）
+        env_path = os.getenv("DOWNLOAD_PATH")
+        if env_path:
+            return env_path
+        # 否则默认使用Docker路径
+        return "/app/downloads"
 
 if __name__ == "__main__":
     # 测试代码
