@@ -1617,8 +1617,10 @@
                     // 添加解析按钮事件
                     const parseBtn = songItem.querySelector('.parse-song-btn');
                     parseBtn.addEventListener('click', () => {
-                        isFromPlaylistParse = true;
-                        parseSingleSongHandler(songId);
+                        requireValidCookie(() => {
+                            isFromPlaylistParse = true;
+                            parseSingleSongHandler(songId);
+                        });
                     });
                     
                     songList.appendChild(songItem);
@@ -1792,97 +1794,101 @@
 
             // 单首歌曲下载按钮事件
             document.getElementById('download-btn').addEventListener('click', function() {
-                const musicId = document.getElementById('download_id').value.trim();
-                const quality = document.getElementById('download_quality').value;
-                
-                if (!musicId) {
-                    alert('请先解析音乐获取信息');
-                    return;
-                }
-                
-                let processedId = musicId;
-                const idMatch = musicId.match(/song\?id=(\d+)/);
-                if (idMatch) {
-                    processedId = idMatch[1];
-                }
-                
-                const progressBar = document.querySelector('#download-progress .progress-bar');
-                progressBar.style.width = '0%';
-                document.getElementById('download-progress').style.display = 'block';
-                const downloadBtn = document.getElementById('download-btn');
-                downloadBtn.disabled = true;
-                downloadBtn.innerHTML = '<span class="loading"></span> 下载中...';
-                
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', '/Download', true);
-                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-                xhr.responseType = 'blob';
-                
-                xhr.addEventListener('progress', function(e) {
-                    if (e.lengthComputable) {
-                        const percent = (e.loaded / e.total) * 100;
-                        progressBar.style.width = percent + '%';
+                requireValidCookie(() => {
+                    const musicId = document.getElementById('download_id').value.trim();
+                    const quality = document.getElementById('download_quality').value;
+                    
+                    if (!musicId) {
+                        alert('请先解析音乐获取信息');
+                        return;
                     }
-                });
-                
-                // 模拟进度（如果真实进度不可用）
-                let progressInterval;
-                if (!xhr.upload) {
-                    let simulatedProgress = 0;
-                    progressInterval = setInterval(() => {
-                        if (simulatedProgress < 90) {
-                            simulatedProgress += Math.random() * 5;
-                            progressBar.style.width = simulatedProgress + '%';
+                    
+                    let processedId = musicId;
+                    const idMatch = musicId.match(/song\?id=(\d+)/);
+                    if (idMatch) {
+                        processedId = idMatch[1];
+                    }
+                    
+                    const progressBar = document.querySelector('#download-progress .progress-bar');
+                    progressBar.style.width = '0%';
+                    document.getElementById('download-progress').style.display = 'block';
+                    const downloadBtn = document.getElementById('download-btn');
+                    downloadBtn.disabled = true;
+                    downloadBtn.innerHTML = '<span class="loading"></span> 下载中...';
+                    
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', '/Download', true);
+                    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                    xhr.responseType = 'blob';
+                    
+                    xhr.addEventListener('progress', function(e) {
+                        if (e.lengthComputable) {
+                            const percent = (e.loaded / e.total) * 100;
+                            progressBar.style.width = percent + '%';
                         }
-                    }, 1000);
-                }
-                
-                xhr.onload = function() {
-                    clearInterval(progressInterval);
+                    });
                     
-                    if (xhr.status === 200) {
-                        progressBar.style.width = '100%';
-                        
-                        const downloadMessage = xhr.getResponseHeader('X-Download-Message');
-                        const encodedFilename = xhr.getResponseHeader('X-Download-Filename');
-                        const filename = encodedFilename ? decodeURIComponent(encodedFilename) : 'music.flac';
-                        
-                        const blob = xhr.response;
-                        const url = window.URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = filename;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        window.URL.revokeObjectURL(url);
-                        
-                        alert('✅ 音乐文件下载完成！');
-                    } else {
-                        alert('下载失败，请重试');
+                    // 模拟进度（如果真实进度不可用）
+                    let progressInterval;
+                    if (!xhr.upload) {
+                        let simulatedProgress = 0;
+                        progressInterval = setInterval(() => {
+                            if (simulatedProgress < 90) {
+                                simulatedProgress += Math.random() * 5;
+                                progressBar.style.width = simulatedProgress + '%';
+                            }
+                        }, 1000);
                     }
                     
-                    setTimeout(() => {
+                    xhr.onload = function() {
+                        clearInterval(progressInterval);
+                        
+                        if (xhr.status === 200) {
+                            progressBar.style.width = '100%';
+                            
+                            const downloadMessage = xhr.getResponseHeader('X-Download-Message');
+                            const encodedFilename = xhr.getResponseHeader('X-Download-Filename');
+                            const filename = encodedFilename ? decodeURIComponent(encodedFilename) : 'music.flac';
+                            
+                            const blob = xhr.response;
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            window.URL.revokeObjectURL(url);
+                            
+                            alert('✅ 音乐文件下载完成！');
+                        } else {
+                            alert('下载失败，请重试');
+                        }
+                        
+                        setTimeout(() => {
+                            document.getElementById('download-progress').style.display = 'none';
+                            downloadBtn.disabled = false;
+                            downloadBtn.innerHTML = '下载音乐';
+                        }, 500);
+                    };
+                    
+                    xhr.onerror = function() {
+                        clearInterval(progressInterval);
+                        alert('下载出错，请重试');
                         document.getElementById('download-progress').style.display = 'none';
                         downloadBtn.disabled = false;
                         downloadBtn.innerHTML = '下载音乐';
-                    }, 500);
-                };
-                
-                xhr.onerror = function() {
-                    clearInterval(progressInterval);
-                    alert('下载出错，请重试');
-                    document.getElementById('download-progress').style.display = 'none';
-                    downloadBtn.disabled = false;
-                    downloadBtn.innerHTML = '下载音乐';
-                };
-                
-                const formData = `id=${encodeURIComponent(processedId)}&quality=${encodeURIComponent(quality)}`;
-                xhr.send(formData);
+                    };
+                    
+                    const formData = `id=${encodeURIComponent(processedId)}&quality=${encodeURIComponent(quality)}`;
+                    xhr.send(formData);
+                });
             });
             
             // 批量下载按钮事件
-            document.getElementById('batchDownloadBtn').addEventListener('click', batchDownloadCurrentPage);
+            document.getElementById('batchDownloadBtn').addEventListener('click', () => {
+                requireValidCookie(batchDownloadCurrentPage);
+            });
             
             // 返回歌单列表按钮事件
             backToPlaylistBtn.addEventListener('click', () => {
@@ -1937,7 +1943,7 @@
                 }
                 
                 return id;
-            }
+            };
             
             // 解析按钮点击事件
             document.getElementById('parse-button').addEventListener('click', () => {
@@ -1981,6 +1987,31 @@
                     document.getElementById('parse-button').click();
                 }
             });
+
+            // 检查Cookie是否有效
+            async function checkCookieValidity() {
+                try {
+                    const response = await fetch('/api/check-cookie');
+                    const data = await response.json();
+                    return data.success && data.data.valid;
+                } catch (error) {
+                    console.error('检查Cookie有效性失败:', error);
+                    return false; // 网络错误时默认视为无效
+                }
+            };
+
+            // 需要Cookie验证的操作前调用
+            async function requireValidCookie(action) {
+                const isCookieValid = await checkCookieValidity();
+                if (!isCookieValid) {
+                    alert('Cookie无效或已过期，请先在设置中扫码登录');
+                    openSidebar(); // 自动打开设置侧边栏
+                    return false;
+                }
+                // Cookie有效，执行原操作
+                action();
+                return true;
+            };
             
             // 显示大图
             showBigPicBtn.addEventListener('click', () => {
