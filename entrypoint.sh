@@ -162,20 +162,17 @@ echo "[$(log_time)] 启动应用初始化..."
 # 1. 检查环境变量
 check_env
 
-# 2. 创建同步脚本
+# 2. 创建同步脚本（用于后续定时更新）
 create_sync_script
 
-# 3. 初始同步代码
-echo "[$(log_time)] 首次执行代码同步..."
-/usr/local/bin/sync_code || {
-  echo "[$(log_time)] 错误：首次代码同步失败，无法启动应用" >&2
-  exit 1
-}
+# 3. 使用镜像中的本地代码启动，不执行首次同步
+echo "[$(log_time)] 使用镜像内置代码启动应用..."
+echo "[$(log_time)] 注意：首次启动使用构建时的代码版本，定时同步功能将在后续生效"
 
 # 4. 启动应用
 manage_app "start"
 
-# 5. 配置定时任务
+# 5. 配置定时任务（用于后续代码更新）
 setup_cron
 
 # 6. 启动crond服务（前台运行，保持容器活跃）

@@ -43,6 +43,9 @@ WORKDIR /app
 COPY --from=builder /venv /venv
 ENV PATH="/venv/bin:$PATH"
 
+# 复制应用代码
+COPY src/ /app/src/
+
 # 复制入口脚本
 COPY entrypoint.sh /app/
 RUN chmod +x /app/entrypoint.sh
