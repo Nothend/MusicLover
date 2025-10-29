@@ -781,6 +781,17 @@ def check_qr_status():
     except Exception as e:
         api_service.logger.error(f"检查二维码状态异常: {e}")
         return APIResponse.error(f"检查二维码状态失败: {str(e)}", 500)
+    
+@app.route('/api/check-cookie', methods=['GET'])
+def check_cookie():
+    """检查Cookie是否有效"""
+    try:
+        cookies = api_service._get_cookies()
+        is_valid = api_service.netease_api.is_cookie_valid(cookies)
+        return APIResponse.success({"valid": is_valid}, "Cookie状态检查成功")
+    except Exception as e:
+        api_service.logger.error(f"检查Cookie状态异常: {e}")
+        return APIResponse.error(f"检查Cookie状态失败: {str(e)}", 500)
 
 @app.route('/api/info', methods=['GET'])
 def api_info():
@@ -839,9 +850,8 @@ def start_api_server():
         print("="*60)
         print(f"⏰ 启动时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print("🌟 服务已就绪，等待请求...\n")
-        config = Config()
         # 初始化日志
-        level = config.get("LEVEL", "INFO")
+        level = user_config.get("LEVEL", "INFO")
         # 用 getattr 替代 logging.getLevelName，获取日志级别常量
         log_level = getattr(logging, level, logging.INFO)  # 若级别无效，默认使用 INFO
         setup_logger(log_level)
