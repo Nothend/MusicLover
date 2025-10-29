@@ -16,7 +16,7 @@ services:
     ports:
       - "5151:5151"  # 映射容器端口到主机
     volumes:
-      - ./config.yaml:/app/config.yaml  # 配置文件映射（需提前创建config.yaml并填写Cookie）
+      - ./config.yaml:/app/config.yaml  # 配置文件映射
       - ./logs:/app/logs  # 日志目录映射，用于查看运行日志
     environment:
       - TZ=Asia/Shanghai  # 设置时区为上海，确保时间同步
@@ -27,13 +27,24 @@ services:
 2. 在同级目录创建 `config.yaml`，按格式填写网易云音乐黑胶会员Cookie（格式参考下方「配置说明」）
 3. 执行部署命令：`docker-compose up -d`
 4. 访问服务：打开浏览器访问 `http://localhost:5151`
-5. 查看日志：`docker-compose logs -f`
+5. 在网页的右上角【设置】中，扫码登录云音乐，系统自动更新cookie，无需手动填写
+6. 查看日志：`docker-compose logs -f`
 
 
 ## 二、项目说明
 
 ### ⚠️ 重要声明
 本项目为开源软件，遵循 MIT 许可证。任何个人或组织可自由使用、修改和分发源代码，但本项目及衍生作品**禁止用于商业或付费项目**。违反者将视为侵犯许可证，欢迎在遵守开源精神的前提下贡献代码。
+
+
+### 📸 网站效果展示
+以下为服务运行后的界面效果（点击可查看大图）：
+
+| 首页界面 | 扫码界面 |
+|--------------|--------------|
+| ![首页界面](./src/static/web1.png) | ![扫码界面](./src/static/web2.png) |
+
+> 提示：实际使用时请将上述图片链接替换为真实截图（可存放于项目根目录的`docs`文件夹，使用相对路径引用，如`./docs/home.png`）
 
 
 ### ✨ 功能特性
@@ -58,7 +69,6 @@ services:
 ### 环境要求（非Docker部署）
 - Python 3.12+
 - 网易云音乐黑胶会员账号（需获取Cookie用于高音质解析）
-
 
 ### 支持的链接格式
 ```
