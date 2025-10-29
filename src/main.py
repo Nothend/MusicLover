@@ -432,6 +432,110 @@ def get_song_info():
         api_service.logger.error(f"获取歌曲信息异常: {e}\n{traceback.format_exc()}")
         return APIResponse.error(f"服务器错误: {str(e)}", 500)
 
+@app.route('/song/detail', methods=['GET', 'POST'])
+def song_detail_api():
+    """获取歌曲详情接口（需有效Cookie才能访问）"""
+    try:
+        # 1. 【核心逻辑】先判断Cookie有效性，无效直接返回
+        cookies = api_service._get_cookies()
+        try:
+            # 调用Cookie有效性检查方法
+            is_cookie_valid = api_service.netease_api.is_cookie_valid(cookies)
+        except Exception as e:
+            api_service.logger.error(f"Cookie有效性检查异常: {e}")
+            return APIResponse.error("Cookie验证失败，请重试", 500)
+        
+        # 若Cookie无效，直接返回错误
+        if not is_cookie_valid:
+            return APIResponse.error("Cookie无效或已过期，请重新登录", 401)  # 401表示未授权
+        
+        # 3. 仅当Cookie有效时，才执行后续逻辑
+
+         # 1. 获取并验证请求参数
+        # 获取请求参数
+        data = api_service._safe_get_request_data()
+        music_id = data.get('id')
+        quality = data.get('quality', 'lossless')
+        return_format = data.get('format', 'file')  # file 或 json
+        
+        # 参数验证
+        validation_error = api_service._validate_request_params({'music_id': music_id})
+        if validation_error:
+            return validation_error
+        
+        # 验证音质参数
+        valid_qualities = ['standard', 'exhigh', 'lossless', 'hires', 'sky', 'jyeffect', 'jymaster']
+        if quality not in valid_qualities:
+            return APIResponse.error(f"无效的音质参数，支持: {', '.join(valid_qualities)}")
+        
+        # 验证返回格式
+        if return_format not in ['file', 'json']:
+            return APIResponse.error("返回格式只支持 'file' 或 'json'")
+
+        # 获取歌曲基本信息
+        song_info = name_v1(music_id)
+        if not song_info or 'songs' not in song_info or not song_info['songs']:
+            return APIResponse.error("未找到歌曲信息", 404)
+
+        # 获取音乐下载链接
+        url_info = url_v1(music_id, quality, cookies)
+        if not url_info or 'data' not in url_info or not url_info['data'] or not url_info['data'][0].get('url'):
+            return APIResponse.error("无法获取音乐下载链接，可能是版权限制或音质不支持", 404)
+        
+        # 获取音乐歌词信息
+        lyric_info = lyric_v1(music_id, cookies)
+        
+        # 构建音乐信息
+        song_data = song_info['songs'][0]
+        url_data = url_info['data'][0]
+        
+        # 获取专辑详情以提取更准确的发行时间
+        alum_id=song_data['al']['id'] if song_data and 'al' in song_data and song_data['al'] else None
+        alum_info = api_service.netease_api.get_album_detail(alum_id,cookies) if alum_id else None
+        alum_publisTime=''
+        if alum_info and 'publishTime' in alum_info:
+            alum_publisTime = alum_info.get('publishTime', song_data['al'].get('publishTime',0))
+        publish_timestamp = alum_publisTime
+        # 转换为年月日格式（调用工具函数）
+        publish_time = api_service.netease_api._timestamp_str_to_date(publish_timestamp)
+        
+        
+
+        # 生成安全文件名
+        # 获取音乐信息
+        title = music_info['name']
+        artists = music_info['artist_string']
+        # 生成可能的文件名
+        base_filename = f"{artists} - {title}"
+        safe_filename = api_service.downloader.get_sanitize_filename(base_filename)
+
+        file_ext = api_service.downloader.get_file_extension(music_info['download_url'])
+        # 检查所有可能的文件
+        filename = f"{safe_filename}{file_ext}"
+
+        music_info = {
+            'id': music_id,
+            'name': song_data['name'],
+            'artist_string': ', '.join(artist['name'] for artist in song_data['ar']),
+            'album': song_data['al']['name'],
+            'pic_url': song_data['al']['picUrl'],
+            'file_type': url_data['type'],
+            'file_size': url_data['size'],
+            'duration': song_data.get('dt', 0),
+            'download_url': url_data['url'],
+            'publishTime': publish_time,
+            'filename': filename,
+            'track_number': song_data['no'],
+            'lyric': lyric_info.get('lrc', {}).get('lyric', '') if lyric_info else '',
+            'tlyric': lyric_info.get('tlyric', {}).get('lyric', '') if lyric_info else ''
+        }
+        
+        return APIResponse.success(music_info, "歌曲详情获取成功")
+        
+    except Exception as e:
+        api_service.logger.error(f"获取歌曲详情异常: {e}\n{traceback.format_exc()}")
+        return APIResponse.error(f"获取歌曲详情失败: {str(e)}", 500)
+    
 
 @app.route('/search', methods=['GET', 'POST'])
 @app.route('/Search', methods=['GET', 'POST'])  # 向后兼容
