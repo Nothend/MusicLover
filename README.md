@@ -24,7 +24,7 @@ services:
 
 ### 部署步骤：
 1. 创建 `docker-compose.yml` 文件，复制上述配置
-2. 在同级目录创建 `config.yaml`，按格式填写网易云音乐黑胶会员Cookie（格式参考下方「配置说明」）
+2. 在同级目录创建 `config.yaml`，按格式填写网易云音乐黑胶会员Cookie（可不填cookie，直接部署后扫码更新cookie）
 3. 执行部署命令：`docker-compose up -d`
 4. 访问服务：打开浏览器访问 `http://localhost:5151`
 5. 在网页的右上角【设置】中，扫码登录云音乐，系统自动更新cookie，无需手动填写
