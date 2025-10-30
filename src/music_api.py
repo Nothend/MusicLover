@@ -697,28 +697,37 @@ class NeteaseAPI:
 
     def _timestamp_str_to_date(self, timestamp_int: int) -> str:
         """
-        将整数时间戳（13位或11位）转换为YYYY-MM-DD格式
+        将整数时间戳（10-13位）转换为YYYY-MM-DD格式
         
         Args:
-            timestamp: 整数时间戳（如1305388800000或13053888000）
+            timestamp_int: 整数时间戳（如1305388800（10位秒级）、984240000007（12位毫秒级）、1620000000000（13位毫秒级））
             
         Returns:
             格式化后的日期字符串，转换失败返回空字符串
         """
         try:
-            # 1. 处理11位时间戳（补全为13位毫秒级）
-            if 10**10 <= timestamp_int < 10**11:  # 11位数字范围（10000000000 ~ 99999999999）
-                timestamp *= 100  # 转换为13位（如13053888000 → 1305388800000）
+            # 1. 统一转换为毫秒级时间戳（13位）
+            if timestamp_int < 10**10:
+                # 小于10位：无效（排除异常值，如12345）
+                return ""
+            elif 10**10 <= timestamp_int < 10**13:
+                # 10-12位：补全为13位（根据位数动态补0）
+                # 例：10位（秒级）→ 乘1000；11位→乘100；12位→乘10
+                digit_count = len(str(timestamp_int))  # 获取时间戳的位数
+                timestamp_int *= 10 **(13 - digit_count)  # 补全到13位
+            # 13位：保持不变（不进入上述分支，直接使用原始值）
             
-            # 2. 验证13位时间戳（毫秒级）
-            if not (10**12 <= timestamp_int < 10**13):  # 13位数字范围（1000000000000 ~ 9999999999999）
+            # 2. 验证时间范围（1970-01-01 ~ 2100-12-31）
+            min_ts = 0  # 1970-01-01 00:00:00（毫秒级）
+            max_ts = 4102444800000  # 2100-12-31 23:59:59（毫秒级）
+            if not (min_ts <= timestamp_int <= max_ts):
                 return ""
             
-            # 3. 转换为年月日（毫秒级时间戳需÷1000）
+            # 3. 转换为日期（毫秒级时间戳需÷1000得到秒级）
             return datetime.fromtimestamp(timestamp_int / 1000).strftime("%Y-%m-%d")
         
         except (ValueError, TypeError, OSError):
-            # 处理异常情况（如数值溢出、非整数类型等）
+            # 处理异常（如非整数、时间戳超出系统支持范围等）
             return ""
 
 class QRLoginManager:
