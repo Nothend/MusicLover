@@ -761,29 +761,6 @@
                             <p class="result-stats" id="playlist-stats"></p>
                         </div>
                         <div class="result-actions">
-                            <!-- 批量下载方式选择下拉框 -->
-                            <div class="select-container" style="width: 200px;">
-                                <div id="download-mode-display" class="select-display">
-                                    <span>服务端推送下载</span>
-                                    <span>▼</span>
-                                </div>
-                                <div id="download-mode-options" class="select-options">
-                                    <div class="select-option" data-value="client">
-                                        <span>客户端快速下载</span>
-                                        <span class="badge badge-warning">本地多线程（无歌曲元数据）</span>
-                                    </div>
-                                    <div class="select-option active" data-value="server-push">
-                                        <span>服务端推送下载</span>
-                                        <span class="badge badge-recommend">有元数据但速度较慢</span>
-                                    </div>
-                                    <div class="select-option" data-value="server-save">
-                                        <span>直接下载到服务端</span>
-                                        <span class="badge badge-info">直接保存到映射的目录</span>
-                                    </div>
-                                </div>
-                                <input type="hidden" id="download-mode-select" value="server-push">
-                            </div>
-                            
                             <button id="batchDownloadBtn" class="btn btn-success">
                                 批量下载本页
                             </button>
@@ -1229,39 +1206,6 @@
                 });
             });
 
-            // 批量下载方式选择下拉菜单
-            const downloadModeDisplay = document.getElementById('download-mode-display');
-            const downloadModeOptions = document.getElementById('download-mode-options');
-            const downloadModeSelect = document.getElementById('download-mode-select');
-            const downloadModeItems = document.querySelectorAll('#download-mode-options .select-option');
-            
-            downloadModeDisplay.addEventListener('click', () => {
-                downloadModeOptions.style.display = downloadModeOptions.style.display === 'block' ? 'none' : 'block';
-            });
-            
-            document.addEventListener('click', (e) => {
-                if (!downloadModeDisplay.contains(e.target) && !downloadModeOptions.contains(e.target)) {
-                    downloadModeOptions.style.display = 'none';
-                }
-            });
-            
-            downloadModeItems.forEach(item => {
-                item.addEventListener('click', () => {
-                    downloadModeItems.forEach(i => i.classList.remove('active'));
-                    item.classList.add('active');
-                    
-                    const modeName = item.querySelector('span:first-child').textContent;
-                    const value = item.getAttribute('data-value');
-                    
-                    downloadModeDisplay.innerHTML = `
-                        <span>${modeName}</span>
-                        <span>▼</span>
-                    `;
-                    downloadModeSelect.value = value;
-                    downloadModeOptions.style.display = 'none';
-                });
-            });
-
             // 格式化时长（毫秒转分:秒）
             function formatDuration(ms) {
                 if (!ms) return '未知';
@@ -1592,171 +1536,6 @@
                 return blob; // 失败时返回原始文件
                 }
             };
-
-            /**
-             * 批量下载方式2：服务端推送下载（原有实现）
-             */
-            async function serverPushDownload() {
-                if (isBatchDownloading || !playlistData) return;
-                
-                // 获取当前页歌曲
-                const pl = playlistData.data.playlist;
-                const allSongs = pl.songs || pl.tracks || [];
-                const startIndex = (currentPage - 1) * pageSize;
-                const endIndex = Math.min(startIndex + pageSize, allSongs.length);
-                const currentSongs = allSongs.slice(startIndex, endIndex);
-                
-                if (currentSongs.length === 0) {
-                    alert('当前页没有可下载的歌曲');
-                    return;
-                }
-                
-                // 配置并发参数
-                const MAX_CONCURRENT = 3; // 最大同时下载数
-                let completedCount = 0; // 已完成的任务数（成功+失败）
-                let successCount = 0;   // 成功的任务数
-                const total = currentSongs.length;
-                
-                // 清空活跃请求列表
-                activeXhrs.clear();
-                
-                // 初始化下载状态
-                isBatchDownloading = true;
-                const batchBtn = document.getElementById('batchDownloadBtn');
-                batchBtn.disabled = true;
-                batchBtn.innerHTML = '<span class="loading"></span> 下载中...';
-                
-                try {
-                    // 创建下载任务队列
-                    const downloadQueue = [...currentSongs];
-                    // 获取当前选中的音质
-                    const quality = document.getElementById('quality-select').value;
-                    
-                    // 并发控制函数：递归启动任务，不超过最大并发数
-                    const startNextTask = async () => {
-                        // 终止条件：队列空
-                        if (downloadQueue.length === 0) return;
-                        
-                        // 取出队列中的下一个任务
-                        const song = downloadQueue.shift();
-                        const songId = song.id || song.songId || '';
-                        const songName = song.name || song.songName || '未知歌曲';
-                        
-                        // 查找对应的歌曲元素
-                        const songItemEl = document.querySelector(`.song-item[data-id="${songId}"]`);
-                        if (!songItemEl) {
-                            // 找不到元素，直接标记完成，继续下一个任务
-                            completedCount++;
-                            return startNextTask();
-                        }
-                        
-                        // 执行单个下载任务
-                        const success = await downloadSingleSong(songId, quality, songName, songItemEl);
-                        
-                        // 任务完成后更新计数
-                        completedCount++;
-                        if (success) successCount++;
-                        
-                        // 递归启动下一个任务
-                        startNextTask();
-                    };
-                    
-                    // 批量启动初始任务（不超过最大并发数）
-                    for (let i = 0; i < MAX_CONCURRENT; i++) {
-                        startNextTask();
-                    }
-                    
-                    // 等待所有任务完成（轮询检查）
-                    await new Promise(resolve => {
-                        const checkComplete = setInterval(() => {
-                            if (completedCount >= total) {
-                                clearInterval(checkComplete);
-                                resolve();
-                            }
-                        }, 500);
-                    });
-                    
-                    // 所有任务完成后提示
-                    alert(`批量下载完成！成功: ${successCount}/${total}`);
-                    
-                } finally {
-                    // 下载结束处理
-                    isBatchDownloading = false;
-                    batchBtn.disabled = false;
-                    batchBtn.innerHTML = '批量下载本页';
-                    
-                    // 清空活跃请求列表
-                    activeXhrs.clear();
-                }
-            }
-
-            /**
-             * 批量下载方式3：直接下载到服务端（空函数占位）
-             */
-            async function downloadToServer() {
-                if (isBatchDownloading || !playlistData) return;
-                
-                // 获取当前页歌曲
-                const pl = playlistData.data.playlist;
-                const allSongs = pl.songs || pl.tracks || [];
-                const startIndex = (currentPage - 1) * pageSize;
-                const endIndex = Math.min(startIndex + pageSize, allSongs.length);
-                const currentSongs = allSongs.slice(startIndex, endIndex);
-                
-                if (currentSongs.length === 0) {
-                    alert('当前页没有可下载的歌曲');
-                    return;
-                }
-                
-                // 初始化下载状态
-                isBatchDownloading = true;
-                const batchBtn = document.getElementById('batchDownloadBtn');
-                batchBtn.disabled = true;
-                batchBtn.innerHTML = '<span class="loading"></span> 后台处理中...';
-                
-                try {
-                    // 这里应该发送请求到服务器，告知需要下载的歌曲ID列表
-                    // 示例实现：
-                    const songIds = currentSongs.map(song => song.id || song.songId).filter(Boolean);
-                    const quality = document.getElementById('quality-select').value;
-                    
-                    // 模拟API请求
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    
-                    alert(`已向服务器发送下载请求，共${songIds.length}首歌曲将在后台下载`);
-                } catch (error) {
-                    console.error('下载到服务器失败:', error);
-                    alert('下载到服务器时发生错误');
-                } finally {
-                    // 下载结束处理
-                    isBatchDownloading = false;
-                    batchBtn.disabled = false;
-                    batchBtn.innerHTML = '批量下载本页';
-                }
-            }
-
-            /**
-             * 根据选择的下载方式执行对应的下载方法
-             */
-            function handleBatchDownload() {
-                const downloadMode = document.getElementById('download-mode-select').value;
-                
-                switch(downloadMode) {
-                    case 'client':
-                        clientFastDownload();
-                        break;
-                    case 'server-push':
-                        serverPushDownload();
-                        break;
-                    case 'server-save':
-                        downloadToServer();
-                        break;
-                    default:
-                        console.error('未知的下载方式:', downloadMode);
-                        alert('未知的下载方式');
-                }
-            }
-
             // 解析处理方法 - 链接解析（返回Promise，方便异步调用）
             function parseSingleSongHandler(id) {
                 return new Promise((resolve, reject) => {
@@ -2128,101 +1907,54 @@
             }
 
             // 单首歌曲下载按钮事件
-            document.getElementById('download-btn').addEventListener('click', function() {
-                requireValidCookie(() => {
-                    const musicId = document.getElementById('download_id').value.trim();
-                    const quality = document.getElementById('download_quality').value;
-                    
-                    if (!musicId) {
-                        alert('请先解析音乐获取信息');
-                        return;
-                    }
-                    
-                    let processedId = musicId;
-                    const idMatch = musicId.match(/song\?id=(\d+)/);
-                    if (idMatch) {
-                        processedId = idMatch[1];
-                    }
-                    
-                    const progressBar = document.querySelector('#download-progress .progress-bar');
-                    progressBar.style.width = '0%';
-                    document.getElementById('download-progress').style.display = 'block';
-                    const downloadBtn = document.getElementById('download-btn');
-                    downloadBtn.disabled = true;
-                    downloadBtn.innerHTML = '<span class="loading"></span> 下载中...';
-                    
-                    const xhr = new XMLHttpRequest();
-                    xhr.open('POST', '/Download', true);
-                    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-                    xhr.responseType = 'blob';
-                    
-                    xhr.addEventListener('progress', function(e) {
-                        if (e.lengthComputable) {
-                            const percent = (e.loaded / e.total) * 100;
-                            progressBar.style.width = percent + '%';
+            document.getElementById('download-btn').addEventListener('click', async function() {
+                const musicId = document.getElementById('download_id').value.trim();
+                const quality = document.getElementById('download_quality').value;
+                const songName = document.getElementById('single-song-title').textContent.trim();
+                
+                if (!musicId) {
+                    alert('请先解析音乐获取信息');
+                    return;
+                }
+
+                // 显示进度条
+                const progressContainer = document.getElementById('download-progress');
+                progressContainer.style.display = 'block';
+                const progressBar = progressContainer.querySelector('.progress-bar');
+                progressBar.style.width = '0%';
+                progressBar.style.background = '#42a5f5'; // 客户端下载用蓝色进度条
+
+                // 禁用按钮
+                const downloadBtn = document.getElementById('download-btn');
+                downloadBtn.disabled = true;
+                downloadBtn.innerHTML = '<span class="loading"></span> 下载中...';
+
+                // 调用客户端单首下载方法
+                const success = await clientDownloadSingleSong(
+                    musicId, 
+                    quality, 
+                    songName, 
+                    // 手动构造单曲下载的容器（模拟歌曲列表项结构）
+                    {
+                        querySelector: (selector) => {
+                            if (selector === '.song-progress') return progressContainer;
+                            if (selector === '.download-status') return { innerHTML: '' };
+                            return null;
                         }
-                    });
-                    
-                    // 模拟进度（如果真实进度不可用）
-                    let progressInterval;
-                    if (!xhr.upload) {
-                        let simulatedProgress = 0;
-                        progressInterval = setInterval(() => {
-                            if (simulatedProgress < 90) {
-                                simulatedProgress += Math.random() * 5;
-                                progressBar.style.width = simulatedProgress + '%';
-                            }
-                        }, 1000);
                     }
-                    
-                    xhr.onload = function() {
-                        clearInterval(progressInterval);
-                        
-                        if (xhr.status === 200) {
-                            progressBar.style.width = '100%';
-                            
-                            const downloadMessage = xhr.getResponseHeader('X-Download-Message');
-                            const encodedFilename = xhr.getResponseHeader('X-Download-Filename');
-                            const filename = encodedFilename ? decodeURIComponent(encodedFilename) : 'music.flac';
-                            
-                            const blob = xhr.response;
-                            const url = window.URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = filename;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            window.URL.revokeObjectURL(url);
-                            
-                            alert('✅ 音乐文件下载完成！');
-                        } else {
-                            alert('下载失败，请重试');
-                        }
-                        
-                        setTimeout(() => {
-                            document.getElementById('download-progress').style.display = 'none';
-                            downloadBtn.disabled = false;
-                            downloadBtn.innerHTML = '下载音乐';
-                        }, 500);
-                    };
-                    
-                    xhr.onerror = function() {
-                        clearInterval(progressInterval);
-                        alert('下载出错，请重试');
-                        document.getElementById('download-progress').style.display = 'none';
-                        downloadBtn.disabled = false;
-                        downloadBtn.innerHTML = '下载音乐';
-                    };
-                    
-                    const formData = `id=${encodeURIComponent(processedId)}&quality=${encodeURIComponent(quality)}`;
-                    xhr.send(formData);
-                });
+                );
+
+                // 恢复按钮状态
+                downloadBtn.disabled = false;
+                downloadBtn.innerHTML = '下载音乐';
+                if (!success) {
+                    progressBar.style.background = '#f44336'; // 失败时变红
+                }
             });
             
             // 批量下载按钮事件
             document.getElementById('batchDownloadBtn').addEventListener('click', () => {
-                requireValidCookie(handleBatchDownload);
+                requireValidCookie(clientFastDownload);
             });
             
             // 返回歌单列表按钮事件
