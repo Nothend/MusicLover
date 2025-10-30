@@ -255,6 +255,7 @@ def handle_internal_error(e):
 def index() -> str:
     # 从环境变量获取是否启用二维码功能，默认启用
     enable_qr_code = user_config.enable_QR
+    print(f"📋 当前是否启用扫码更新cookie功能: {enable_qr_code}")
     # 将变量传递给模板
     return render_template('index.html', enable_qr_code=enable_qr_code)
 
