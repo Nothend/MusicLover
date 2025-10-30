@@ -706,28 +706,26 @@ class NeteaseAPI:
             格式化后的日期字符串，转换失败返回空字符串
         """
         try:
-            # 1. 统一转换为毫秒级时间戳（13位）
+            # 1. 统一转换为毫秒级时间戳（根据实际值判断是否为秒级）
+            # 阈值：5e11毫秒 ≈ 1985年，小于该值的10-12位可能是秒级
             if timestamp_int < 10**10:
-                # 小于10位：无效（排除异常值，如12345）
+                # 小于10位：无效
                 return ""
-            elif 10**10 <= timestamp_int < 10**13:
-                # 10-12位：补全为13位（根据位数动态补0）
-                # 例：10位（秒级）→ 乘1000；11位→乘100；12位→乘10
-                digit_count = len(str(timestamp_int))  # 获取时间戳的位数
-                timestamp_int *= 10 **(13 - digit_count)  # 补全到13位
-            # 13位：保持不变（不进入上述分支，直接使用原始值）
+            elif timestamp_int < 5 * 10**11:
+                # 10-11位且小于5e11：视为秒级，转换为毫秒级（×1000）
+                timestamp_int *= 1000
+            # 12-13位且>=5e11：视为毫秒级，不转换（保持原数）
             
             # 2. 验证时间范围（1970-01-01 ~ 2100-12-31）
             min_ts = 0  # 1970-01-01 00:00:00（毫秒级）
-            max_ts = 4102444800000  # 2100-12-31 23:59:59（毫秒级）
+            max_ts = 4102444799000  # 2100-12-31 23:59:59（毫秒级，修正后的值）
             if not (min_ts <= timestamp_int <= max_ts):
                 return ""
             
-            # 3. 转换为日期（毫秒级时间戳需÷1000得到秒级）
+            # 3. 转换为日期（毫秒级→秒级）
             return datetime.fromtimestamp(timestamp_int / 1000).strftime("%Y-%m-%d")
         
         except (ValueError, TypeError, OSError):
-            # 处理异常（如非整数、时间戳超出系统支持范围等）
             return ""
 
 class QRLoginManager:
