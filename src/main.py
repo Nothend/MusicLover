@@ -251,12 +251,12 @@ def handle_internal_error(e):
     api_service.logger.error(f"服务器内部错误: {e}")
     return APIResponse.error("服务器内部错误", 500)
 
-
 @app.route('/')
 def index() -> str:
-    """首页路由"""
-    return render_template('index.html')
-
+    # 从环境变量获取是否启用二维码功能，默认启用
+    enable_qr_code = user_config.enable_QR
+    # 将变量传递给模板
+    return render_template('index.html', enable_qr_code=enable_qr_code)
 
 @app.route('/health', methods=['GET'])
 def health_check():
