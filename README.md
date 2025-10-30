@@ -20,6 +20,7 @@ services:
     volumes:
       - ./config.yaml:/app/config.yaml  # 配置文件映射
       - ./logs:/app/logs  # 日志目录映射，用于查看运行日志
+      - ./downloads:/app/downloads  # 下载目录映射
     environment:
       - TZ=Asia/Shanghai  # 设置时区为上海，确保时间同步
 ```
