@@ -2,6 +2,8 @@
 
 ---
 
+本项目由[苏晓晴](https://github.com/Suxiaoqinx)的代码修改而来，在此致敬感谢！
+
 ## 一、Docker Compose 部署
 
 通过 `docker-compose.yml` 可快速部署服务，配置如下：
@@ -67,7 +69,7 @@ services:
 - `jymaster`：超清母带
 
 
-### 环境要求（非Docker部署）
+### 环境要求
 - Python 3.12+
 - 网易云音乐黑胶会员账号（需获取Cookie用于高音质解析）
 
