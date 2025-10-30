@@ -6,6 +6,7 @@
     <title>高品质音乐无损解析</title>
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
     <script src="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/aplayer/1.10.1/APlayer.min.js"></script>
+    <script type="module" src="{{ url_for('static', filename='js/browser-id3-writer.min.js') }}"></script>
     <link rel="stylesheet" href="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/aplayer/1.10.1/APlayer.min.css">
     
     <style>
@@ -890,9 +891,8 @@
         </div>
     </div>
 
-    <script>
-        import { TagLib } from "taglib-wasm";
-        import { applyTags, readTags } from "taglib-wasm/simple";
+    <script type="module">
+        import { embedMetadata } from "{{ url_for('static', filename='js/metadataWriter.js') }}";
         // 所有DOM操作代码包裹在DOMContentLoaded事件中
         document.addEventListener('DOMContentLoaded', function() {
             // 全局变量
@@ -1538,7 +1538,7 @@
                         // 4. 写入元数据（占位，实际实现时替换）
                         const taggedBlob = await addMetadataToBlob(blob, detailData.data);
 
-                        // 5. 直接下载处理好的文件（取消ZIP打包，直接保存单个文件）
+                        // 5. 直接下载处理好的文件
                         const url = URL.createObjectURL(taggedBlob);
                         const a = document.createElement('a');
                         a.href = url;
@@ -1567,10 +1567,30 @@
 
             // 元数据写入占位函数（后续可实现）
             async function addMetadataToBlob(blob, metadata) {
-                // 这里将实现真实的元数据写入逻辑
-                // 例如：使用jsmediatags库给MP3添加ID3标签，或给FLAC添加元数据
-                console.log(`准备给${metadata.name}写入元数据`, metadata);
-                return blob; // 暂时返回原始文件
+                try {
+                // 1. 获取文件扩展名（.mp3或.flac）
+                const fileExt = metadata.file_type ? `.${metadata.file_type}` : blob.type.split('/')[1];
+                // 2. 将blob转换为ArrayBuffer
+                const arrayBuffer = await blob.arrayBuffer();
+                // 3. 调用metadataWriter.js的embedMetadata处理
+                const updatedBuffer = await embedMetadata(
+                    arrayBuffer,
+                    {
+                    name: metadata.name,        // 标题
+                    artist: metadata.artist_string, // 艺术家
+                    album: metadata.album,      // 专辑
+                    year: metadata.publishTime ? metadata.publishTime.slice(0,4) : '', // 年份
+                    lyrics: metadata.lyric,     // 歌词
+                    cover: metadata.pic_url     // 封面URL
+                    },
+                    fileExt.toLowerCase()
+                );
+                // 4. 转换为Blob返回
+                return new Blob([updatedBuffer], { type: blob.type });
+                } catch (error) {
+                console.error('元数据写入失败：', error);
+                return blob; // 失败时返回原始文件
+                }
             };
 
             /**
