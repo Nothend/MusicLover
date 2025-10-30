@@ -503,20 +503,20 @@ def song_detail_api():
 
         # 生成安全文件名
         # 获取音乐信息
-        title = music_info['name']
-        artists = music_info['artist_string']
+        title = song_data['name']
+        artists = ', '.join(artist['name'] for artist in song_data['ar'])
         # 生成可能的文件名
         base_filename = f"{artists} - {title}"
         safe_filename = api_service.downloader.get_sanitize_filename(base_filename)
 
-        file_ext = api_service.downloader.get_file_extension(music_info['download_url'])
+        file_ext = api_service.downloader.get_file_extension(url_data['url'])
         # 检查所有可能的文件
         filename = f"{safe_filename}{file_ext}"
 
         music_info = {
             'id': music_id,
-            'name': song_data['name'],
-            'artist_string': ', '.join(artist['name'] for artist in song_data['ar']),
+            'name': title,
+            'artist_string': artists,
             'album': song_data['al']['name'],
             'pic_url': song_data['al']['picUrl'],
             'file_type': url_data['type'],
