@@ -11,7 +11,7 @@
 ```yaml
 version: '3.8'
 services:
-  netease-music-sync:
+  musiclover:
     image: leonautilus/musiclover:latest
     container_name: musiclover
     restart: always
