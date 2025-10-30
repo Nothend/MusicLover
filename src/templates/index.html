@@ -936,38 +936,40 @@
             let checkCount = 0;
             let remainingSeconds = 180; // 180秒 = 3分钟
             
-            // 生成二维码按钮点击事件
-            generateBtn.addEventListener('click', function() {
-                // 重置状态
-                resetQrState();
-                
-                // 调用API生成二维码
-                fetch('/api/qr/generate')
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            qrKey = data.data.qr_key;
-                            
-                            // 显示二维码，隐藏占位文本
-                            qrImage.src = `data:image/png;base64,${data.data.qr_base64}`;
-                            qrImage.style.display = 'block';
-                            qrPlaceholder.style.display = 'none';
-                            
-                            // 更新状态
-                            updateStatus('请使用网易云音乐APP扫描二维码', 'info');
-                            
-                            // 启动倒计时和状态检查
-                            startCountdown();
-                            startCheckingStatus();
-                        } else {
-                            updateStatus(`生成失败: ${data.message}`, 'danger');
-                        }
-                    })
-                    .catch(error => {
-                        console.error('生成二维码失败:', error);
-                        updateStatus('生成二维码时发生错误', 'danger');
-                    });
-            });
+            if (generateBtn){
+                // 生成二维码按钮点击事件
+                generateBtn.addEventListener('click', function() {
+                    // 重置状态
+                    resetQrState();
+                    
+                    // 调用API生成二维码
+                    fetch('/api/qr/generate')
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                qrKey = data.data.qr_key;
+                                
+                                // 显示二维码，隐藏占位文本
+                                qrImage.src = `data:image/png;base64,${data.data.qr_base64}`;
+                                qrImage.style.display = 'block';
+                                qrPlaceholder.style.display = 'none';
+                                
+                                // 更新状态
+                                updateStatus('请使用网易云音乐APP扫描二维码', 'info');
+                                
+                                // 启动倒计时和状态检查
+                                startCountdown();
+                                startCheckingStatus();
+                            } else {
+                                updateStatus(`生成失败: ${data.message}`, 'danger');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('生成二维码失败:', error);
+                            updateStatus('生成二维码时发生错误', 'danger');
+                        });
+                });
+            };
             
             // 开始倒计时（格式：mm:ss）
             function startCountdown() {
@@ -1064,21 +1066,25 @@
                 }
             }
             
-            // 复制Cookie
-            copyBtn.addEventListener('click', function() {
-                if (scanResult.value) {
-                    scanResult.select();
-                    document.execCommand('copy');
-                    updateStatus('Cookie已复制到剪贴板', 'success');
-                } else {
-                    updateStatus('没有可复制的内容', 'warning');
-                }
-            });
+            // 复制Cookie按钮事件（添加存在性检查）
+            if (copyBtn) {
+                copyBtn.addEventListener('click', function() {
+                    if (scanResult.value) {
+                        scanResult.select();
+                        document.execCommand('copy');
+                        updateStatus('Cookie已复制到剪贴板', 'success');
+                    } else {
+                        updateStatus('没有可复制的内容', 'warning');
+                    }
+                });
+            }
             
-            // 清除内容
-            clearBtn.addEventListener('click', function() {
-                resetQrState();
-            });
+            // 清除按钮事件（添加存在性检查）
+            if (clearBtn) {
+                clearBtn.addEventListener('click', function() {
+                    resetQrState();
+                });
+            };
             
             // 重置二维码状态
             function resetQrState() {
