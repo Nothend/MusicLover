@@ -22,3 +22,4 @@ docker-compose.test.yml
 Dockerfile.dev
 Dockerfile
 entrypoint.sh
+src/static/js/
