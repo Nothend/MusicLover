@@ -302,31 +302,37 @@
         }
         
         /* 侧边栏设置 */
+        /* 修正侧边栏容器样式 */
         .settings-sidebar {
             position: fixed;
             right: 0;
             top: 0;
-            height: 100%;
+            height: 100vh; /* 固定高度为屏幕高度 */
             width: 0;
             background: white;
             box-shadow: -2px 0 10px rgba(0,0,0,0.1);
-            overflow: hidden;
+            overflow: hidden; /* 仅隐藏容器边缘外的内容，不影响内部滚动 */
             z-index: 1000;
             transition: width 0.3s ease;
         }
         
+        /* 确保头部固定在顶部 */
         .sidebar-header {
             padding: 15px;
             border-bottom: 1px solid #e0e0e0;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            position: relative; /* 固定在容器顶部 */
+            z-index: 10; /* 避免被内容遮挡 */
         }
         
+        /* 侧边栏滚动容器样式 */
         .sidebar-content {
-            padding: 15px;
-            overflow-y: auto;
-            height: calc(100% - 60px);
+            padding: 15px; /* 保持原内容的内边距 */
+            height: calc(100vh - 60px); /* 总高度 = 屏幕高度 - 头部高度（sidebar-header 高度约 60px） */
+            overflow-y: auto; /* 内容超出时显示垂直滚动条 */
+            box-sizing: border-box; /* 确保 padding 不增加总高度 */
         }
         
         .settings-section {
@@ -583,73 +589,74 @@
             <h3>网站设置</h3>
             <button id="closeSettings" class="close-btn">关闭</button>
         </div>
-        
-        <!-- 修改的扫码功能区域 -->
-        <div class="settings-section qr-auth-section">
-            <h4><span class="section-icon">🔒</span> 扫码功能验证</h4>
-            
-            <div id="password-container" class="settings-group">
-                <label for="qr-password">请输入密码以启用扫码功能</label>
-                <input type="password" id="qr-password" class="form-control" placeholder="输入密码">
-                <button id="verify-password" class="btn btn-primary" style="margin-top: 10px;">验证密码</button>
-                <p id="password-error" style="color: #f44336; font-size: 0.8rem; margin-top: 5px; display: none;">密码错误，请重试</p>
-            </div>
-            
-            <!-- 扫码功能区域 - 默认隐藏 -->
-            <div id="qr-feature-container" class="qr-feature-container" style="display: none; opacity: 0; transition: opacity 0.5s ease-in-out;">
-                <h4><span class="section-icon">📱</span> 二维码登录</h4>
+        <div class="sidebar-content">
+            <!-- 修改的扫码功能区域 -->
+            <div class="settings-section qr-auth-section">
+                <h4><span class="section-icon">🔒</span> 扫码功能验证</h4>
                 
-                <!-- 倒计时显示（3分钟倒计时） -->
+                <div id="password-container" class="settings-group">
+                    <label for="qr-password">请输入密码以启用扫码功能</label>
+                    <input type="password" id="qr-password" class="form-control" placeholder="输入密码">
+                    <button id="verify-password" class="btn btn-primary" style="margin-top: 10px;">验证密码</button>
+                    <p id="password-error" style="color: #f44336; font-size: 0.8rem; margin-top: 5px; display: none;">密码错误，请重试</p>
+                </div>
+                
+                <!-- 扫码功能区域 - 默认隐藏 -->
+                <div id="qr-feature-container" class="qr-feature-container" style="display: none; opacity: 0; transition: opacity 0.5s ease-in-out;">
+                    <h4><span class="section-icon">📱</span> 二维码登录</h4>
+                    
+                    <!-- 倒计时显示（3分钟倒计时） -->
+                    <div class="settings-group">
+                        <label>二维码有效期</label>
+                        <div class="countdown-display" id="countdown-display">3:00</div>
+                        <p style="text-align:center; font-size:0.8rem; color:#666; margin-top:5px;">
+                            请在倒计时结束前完成扫描
+                        </p>
+                    </div>
+                    
+                    <!-- 二维码生成与显示 -->
+                    <div class="settings-group">
+                        <button id="generate-qr-btn" class="btn btn-primary">生成登录二维码</button>
+                        <div class="qr-code-container">
+                            <img id="qr-code-image" class="qr-code-image" src="" alt="登录二维码">
+                            <p id="qr-placeholder" style="color: #999;">点击上方按钮生成二维码</p>
+                            <p id="login-status" style="margin-top:10px; font-size:0.9rem; color:#666;"></p>
+                        </div>
+                    </div>
+                    
+                    <!-- 扫描结果显示 -->
+                    <div class="settings-group">
+                        <label for="scan-result">登录凭证 (Cookie)</label>
+                        <textarea id="scan-result" class="form-control" rows="3" placeholder="扫描二维码并确认后显示"></textarea>
+                        <div style="display:flex; gap:10px; margin-top:10px;">
+                            <button id="copy-cookie-btn" class="btn btn-secondary" style="flex:1;">复制</button>
+                            <button id="clear-cookie-btn" class="btn btn-secondary" style="flex:1;">清除</button>
+                        </div>
+                    </div>
+                </div>
+            </div>  
+            <!-- 分隔线 -->
+            <div class="sidebar-divider"></div>
+            
+            <!-- 下部分：支持与捐赠 -->
+            <div class="settings-section">
+                <h4><span class="section-icon">💖</span> 支持与捐赠</h4>
+                
                 <div class="settings-group">
-                    <label>二维码有效期</label>
-                    <div class="countdown-display" id="countdown-display">3:00</div>
-                    <p style="text-align:center; font-size:0.8rem; color:#666; margin-top:5px;">
-                        请在倒计时结束前完成扫描
+                    <label for="payment-method">选择支付方式</label>
+                    <select id="payment-method" class="form-control">
+                        <option value="wechat">微信支付</option>
+                        <option value="alipay">支付宝</option>
+                    </select>
+                    
+                    <div class="payment-qr-container">
+                        <img id="payment-qr-image" class="payment-qr-image" 
+                                src="{{ url_for('static', filename='wechat.png') }}" alt="微信收款码">
+                    </div>
+                    <p style="text-align: center; font-size: 0.9rem; color: #666;">
+                        感谢您的支持，您的捐赠将帮助我们持续改进服务
                     </p>
                 </div>
-                
-                <!-- 二维码生成与显示 -->
-                <div class="settings-group">
-                    <button id="generate-qr-btn" class="btn btn-primary">生成登录二维码</button>
-                    <div class="qr-code-container">
-                        <img id="qr-code-image" class="qr-code-image" src="" alt="登录二维码">
-                        <p id="qr-placeholder" style="color: #999;">点击上方按钮生成二维码</p>
-                        <p id="login-status" style="margin-top:10px; font-size:0.9rem; color:#666;"></p>
-                    </div>
-                </div>
-                
-                <!-- 扫描结果显示 -->
-                <div class="settings-group">
-                    <label for="scan-result">登录凭证 (Cookie)</label>
-                    <textarea id="scan-result" class="form-control" rows="3" placeholder="扫描二维码并确认后显示"></textarea>
-                    <div style="display:flex; gap:10px; margin-top:10px;">
-                        <button id="copy-cookie-btn" class="btn btn-secondary" style="flex:1;">复制</button>
-                        <button id="clear-cookie-btn" class="btn btn-secondary" style="flex:1;">清除</button>
-                    </div>
-                </div>
-            </div>
-        </div>  
-        <!-- 分隔线 -->
-        <div class="sidebar-divider"></div>
-        
-        <!-- 下部分：支持与捐赠 -->
-        <div class="settings-section">
-            <h4><span class="section-icon">💖</span> 支持与捐赠</h4>
-            
-            <div class="settings-group">
-                <label for="payment-method">选择支付方式</label>
-                <select id="payment-method" class="form-control">
-                    <option value="wechat">微信支付</option>
-                    <option value="alipay">支付宝</option>
-                </select>
-                
-                <div class="payment-qr-container">
-                    <img id="payment-qr-image" class="payment-qr-image" 
-                            src="{{ url_for('static', filename='wechat.png') }}" alt="微信收款码">
-                </div>
-                <p style="text-align: center; font-size: 0.9rem; color: #666;">
-                    感谢您的支持，您的捐赠将帮助我们持续改进服务
-                </p>
             </div>
         </div>
     </div>
@@ -905,7 +912,11 @@
                 settingsSidebar.style.width = '350px';
                 document.body.style.overflow = 'hidden';
                 if (sidebarContent) {
-                    sidebarContent.scrollTop = 0;
+                    sidebarContent.scrollTop = 0; // 重置滚动位置
+                    // 强制重绘，确保高度和滚动条生效
+                    sidebarContent.style.display = 'none';
+                    sidebarContent.offsetHeight; // 触发重绘
+                    sidebarContent.style.display = 'block';
                 }
             }
             
