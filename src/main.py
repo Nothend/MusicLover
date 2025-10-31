@@ -907,11 +907,20 @@ def check_qr_status():
     
 @app.route('/api/check-cookie', methods=['GET'])
 def check_cookie():
-    """检查Cookie是否有效"""
+    """检查Cookie是否有效及VIP状态"""
     try:
         cookies = api_service._get_cookies()
-        is_valid = api_service.netease_api.is_cookie_valid(cookies)
-        return APIResponse.success({"valid": is_valid}, "Cookie状态检查成功")
+        # 现在返回的是包含 'valid' 和 'is_vip' 的字典
+        cookie_result = api_service.netease_api.is_cookie_valid(cookies)
+        
+        # 同时返回有效性和VIP状态
+        return APIResponse.success(
+            {
+                "valid": cookie_result['valid'],
+                "is_vip": cookie_result['is_vip']
+            }, 
+            "Cookie状态检查成功"
+        )
     except Exception as e:
         api_service.logger.error(f"检查Cookie状态异常: {e}")
         return APIResponse.error(f"检查Cookie状态失败: {str(e)}", 500)
