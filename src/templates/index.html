@@ -1553,10 +1553,19 @@
                             throw new Error(detailData.message || '未获取到下载链接');
                         }
 
+                        let downloadUrl = detailData.data.download_url;
+                        const currentProtocol = window.location.protocol; // 获取当前协议（http: 或 https:）
+
+                        // 如果当前是HTTPS环境，且下载链接是HTTP，则替换为HTTPS
+                        if (currentProtocol === 'https:' && downloadUrl.startsWith('http://')) {
+                            downloadUrl = downloadUrl.replace('http://', 'https://');
+                            console.log('HTTPS环境下自动替换链接:', downloadUrl);
+                        }
+
                         // 2. 下载歌曲文件（单文件单线程，避免分块逻辑复杂化）
                         statusContainer.innerHTML = '<span class="badge badge-downloading">下载中</span>';
-                        const downloadUrl = detailData.data.download_url;
-                        const response = await fetch(downloadUrl);
+                        
+                        const response = await fetch(downloadUrl);// 此时链接协议与当前页面一致
                         
                         // 实时更新下载进度
                         const contentLength = parseInt(response.headers.get('Content-Length'), 10);
