@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 from urllib.parse import quote
-from flask import Flask, request, send_file, render_template, Response
+from flask import Flask, jsonify, request, send_file, render_template, Response
 from config import Config
 
 from urllib.parse import quote
@@ -252,12 +252,30 @@ def handle_internal_error(e):
     return APIResponse.error("服务器内部错误", 500)
 
 @app.route('/')
-def index() -> str:
-    # 从环境变量获取是否启用二维码功能，默认启用
-    enable_qr_code = user_config.enable_QR
-    print(f"📋 当前是否启用扫码更新cookie功能: {enable_qr_code}")
-    # 将变量传递给模板
-    return render_template('index.html', enable_qr_code=enable_qr_code)
+def index():
+    # 假设你的index.html放在templates文件夹中
+    return render_template('index.html')
+
+@app.route('/api/check-password', methods=['GET'])
+def check_password() -> str:
+    # 获取用户输入的密码
+    user_password = request.args.get('password', '')
+    
+    # 从环境变量获取正确密码
+    qr_password = user_config.qr_password
+    
+    # 验证密码
+    if user_password.strip() == str(qr_password).strip():
+        return jsonify({
+            'success': True,
+            'message': '密码验证成功'
+        })
+    else:
+        return jsonify({
+            'success': False,
+            'message': '密码错误'
+        })
+
 
 @app.route('/health', methods=['GET'])
 def health_check():

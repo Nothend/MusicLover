@@ -568,6 +568,12 @@
         #scan-result {
             resize: none;
         }
+        /* 密码输入错误时的抖动动画 */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(5px); }
+        }
     </style>
 </head>
 <body>
@@ -578,10 +584,19 @@
             <button id="closeSettings" class="close-btn">关闭</button>
         </div>
         
-        <div id="sidebar-content" class="sidebar-content">
-            {% if enable_qr_code %}
-            <!-- 上部分：二维码相关功能 -->
-            <div class="settings-section">
+        <!-- 修改的扫码功能区域 -->
+        <div class="settings-section qr-auth-section">
+            <h4><span class="section-icon">🔒</span> 扫码功能验证</h4>
+            
+            <div id="password-container" class="settings-group">
+                <label for="qr-password">请输入密码以启用扫码功能</label>
+                <input type="password" id="qr-password" class="form-control" placeholder="输入密码">
+                <button id="verify-password" class="btn btn-primary" style="margin-top: 10px;">验证密码</button>
+                <p id="password-error" style="color: #f44336; font-size: 0.8rem; margin-top: 5px; display: none;">密码错误，请重试</p>
+            </div>
+            
+            <!-- 扫码功能区域 - 默认隐藏 -->
+            <div id="qr-feature-container" class="qr-feature-container" style="display: none; opacity: 0; transition: opacity 0.5s ease-in-out;">
                 <h4><span class="section-icon">📱</span> 二维码登录</h4>
                 
                 <!-- 倒计时显示（3分钟倒计时） -->
@@ -613,30 +628,28 @@
                     </div>
                 </div>
             </div>
-            {% endif %}
+        </div>  
+        <!-- 分隔线 -->
+        <div class="sidebar-divider"></div>
+        
+        <!-- 下部分：支持与捐赠 -->
+        <div class="settings-section">
+            <h4><span class="section-icon">💖</span> 支持与捐赠</h4>
             
-            <!-- 分隔线 -->
-            <div class="sidebar-divider"></div>
-            
-            <!-- 下部分：支持与捐赠 -->
-            <div class="settings-section">
-                <h4><span class="section-icon">💖</span> 支持与捐赠</h4>
+            <div class="settings-group">
+                <label for="payment-method">选择支付方式</label>
+                <select id="payment-method" class="form-control">
+                    <option value="wechat">微信支付</option>
+                    <option value="alipay">支付宝</option>
+                </select>
                 
-                <div class="settings-group">
-                    <label for="payment-method">选择支付方式</label>
-                    <select id="payment-method" class="form-control">
-                        <option value="wechat">微信支付</option>
-                        <option value="alipay">支付宝</option>
-                    </select>
-                    
-                    <div class="payment-qr-container">
-                        <img id="payment-qr-image" class="payment-qr-image" 
-                             src="{{ url_for('static', filename='wechat.png') }}" alt="微信收款码">
-                    </div>
-                    <p style="text-align: center; font-size: 0.9rem; color: #666;">
-                        感谢您的支持，您的捐赠将帮助我们持续改进服务
-                    </p>
+                <div class="payment-qr-container">
+                    <img id="payment-qr-image" class="payment-qr-image" 
+                            src="{{ url_for('static', filename='wechat.png') }}" alt="微信收款码">
                 </div>
+                <p style="text-align: center; font-size: 0.9rem; color: #666;">
+                    感谢您的支持，您的捐赠将帮助我们持续改进服务
+                </p>
             </div>
         </div>
     </div>
@@ -1127,6 +1140,82 @@
                     paymentQrImage.alt = '微信收款码';
                 }
             });
+
+            // 密码验证功能 - 修改版
+            const passwordInput = document.getElementById('qr-password');
+            const verifyButton = document.getElementById('verify-password');
+            const passwordError = document.getElementById('password-error');
+            const passwordContainer = document.getElementById('password-container');
+            const qrFeatureContainer = document.getElementById('qr-feature-container');
+
+            // 移除页面初始化时的自动验证检查
+            // 页面加载时默认显示密码输入区域，不做任何验证判断
+
+            verifyButton.addEventListener('click', verifyPassword);
+            passwordInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    verifyPassword();
+                }
+            });
+
+            function verifyPassword() {
+                const password = passwordInput.value.trim();
+                
+                if (!password) {
+                    showError('请输入密码');
+                    return;
+                }
+                
+                // 发送密码到服务器验证
+                fetch(`/api/check-password?password=${encodeURIComponent(password)}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`请求失败: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success) {
+                            // 验证成功，显示扫码功能区域
+                            localStorage.setItem('qrFeatureVerified', 'true'); // 仍保留本地存储，避免会话内重复验证
+                            showQrFeatures();
+                        } else {
+                            showError('密码错误，请重试');
+                            passwordInput.value = '';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('密码验证失败:', error);
+                        showError('验证失败，请检查网络或服务器');
+                    });
+            }
+
+            function showQrFeatures() {
+                // 平滑过渡动画
+                passwordContainer.style.opacity = '0';
+                setTimeout(() => {
+                    passwordContainer.style.display = 'none';
+                    qrFeatureContainer.style.display = 'block';
+                    setTimeout(() => {
+                        qrFeatureContainer.style.opacity = '1';
+                    }, 50);
+                }, 300);
+            }
+
+            function showError(message) {
+                passwordError.textContent = message;
+                passwordError.style.display = 'block';
+                
+                // 输入框抖动效果
+                passwordInput.style.animation = 'none';
+                passwordInput.offsetHeight; // 触发重绘
+                passwordInput.style.animation = 'shake 0.5s';
+                
+                setTimeout(() => {
+                    passwordError.style.display = 'none';
+                    passwordInput.style.animation = '';
+                }, 3000);
+            }
 
             // DOM元素
             const parseOptions = document.querySelectorAll('.parse-option');

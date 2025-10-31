@@ -57,7 +57,7 @@ class Config:
             'web_host': '0.0.0.0',
             'web_port': '5151',
             'debug': False,
-            'ENABLE_QR_CODE': True,
+            'QR_PASSWORD': '1234',
             'downloads_dir': 'downloads',
             'max_file_size': 524288000,  # 500MB
             'request_timeout': 30,
@@ -158,8 +158,8 @@ class Config:
     
     # 以下为新增的参数获取属性（直接返回配置值或默认值）
     @property
-    def enable_QR(self) -> str:
-        return self.get('ENABLE_QR_CODE', self._defaults['ENABLE_QR_CODE'])
+    def qr_password(self) -> str:
+        return self.get('QR_PASSWORD', self._defaults['QR_PASSWORD'])
 
     @property
     def web_host(self) -> str:

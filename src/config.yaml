@@ -24,8 +24,8 @@ cors_origins: '*'
 #     "jyeffect"    # 高清环绕声
 #     "jymaster"    # 超清母带
 QUALITY_LEVEL: "lossless"
-# 控制二维码功能是否显示，true显示，false隐藏
-ENABLE_QR_CODE: false
+# 控制二维码功能的密码
+QR_PASSWORD: 9527
 # Navidrome配置
 NAVIDROME:
   NAVIDROME_HOST: "http://192.168.0.6:4533"
