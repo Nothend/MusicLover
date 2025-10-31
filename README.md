@@ -4,6 +4,12 @@
 
 本项目由[苏晓晴](https://github.com/Suxiaoqinx)的代码修改而来，在此致敬感谢！
 
+<div align="center">
+
+[在线体验](https://dm.jfjt.cc/) 
+
+</div>
+
 ## 一、Docker Compose 部署
 
 通过 `docker-compose.yml` 可快速部署服务，配置如下：
