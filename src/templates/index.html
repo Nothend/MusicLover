@@ -1127,6 +1127,14 @@
                                         clearInterval(countdownInterval);
                                         scanResult.value = data.data.cookie || '获取Cookie失败';
                                         qrImage.style.border = '2px solid #4caf50'; // 成功标记
+                                        const isVip = data.data.is_vip; // 从后端返回结果中直接获取is_vip
+                                        if (isVip) {
+                                            updateStatus('登录成功，您是VIP用户', 'success');
+                                            showToast('登录成功，您是VIP用户', 'success');
+                                        } else {
+                                            updateStatus('登录成功，但您当前不是VIP用户', 'warning');
+                                            showToast('您当前不是VIP用户，就别费劲了', 'warning');
+                                        }
                                         break;
                                     case 800: // 二维码已过期
                                         clearInterval(checkInterval);

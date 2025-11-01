@@ -143,6 +143,28 @@ class CookieManager:
             self.logger.error(f"写入Cookie失败: {e}")
             raise CookieException(f"写入Cookie失败: {e}")
         
+    def get_qr_cookie(self, cookie_string: str) -> Dict[str, str]:
+        """获取二维码登录所需的Cookie字典
+        
+        Args:
+            cookie_string: Cookie字符串
+            
+        Returns:
+            二维码登录所需的Cookie字典
+        """
+        try:
+            if not cookie_string:
+                raise CookieException("Cookie不能为空")
+            
+            if_cookies = self.parsed_cookies.copy()
+            
+            if_cookies.update({'MUSIC_U':cookie_string})
+            return if_cookies
+            
+        except Exception as e:
+            self.logger.error(f"获取扫描cookie失败: {e}")
+            return {}
+        
     def update_cookie(self, new_cookies: Dict[str, str]) -> bool:
         """更新Cookie
         

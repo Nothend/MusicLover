@@ -893,10 +893,21 @@ def check_qr_status():
             # 如果登录成功，保存cookie
             if result.get('status_code') == 803 and 'cookie' in result:
                 try:
-                    api_service.cookie_manager.update_cookie(result['cookie'])
-                    api_service.logger.info("登录成功，已保存cookie")
+                    res_cookie=result['cookie']
+                    qr_parse_cookie=api_service.cookie_manager.get_qr_cookie(res_cookie)
+                    cookie_status = api_service.netease_api.is_cookie_valid(qr_parse_cookie)
+                    is_vip=cookie_status.get('is_vip',False)
+                    result['is_vip'] = is_vip
+
+                    # 仅当是VIP时才更新cookie
+                    if is_vip:
+                        api_service.cookie_manager.update_cookie(res_cookie)
+                        api_service.logger.info("登录成功，VIP用户已保存cookie")
+                    else:
+                        api_service.logger.info("登录成功，但非VIP用户，不保存cookie")
                 except Exception as e:
                     api_service.logger.warning(f"保存cookie失败: {e}")
+                    result['is_vip'] = False
             
             return APIResponse.success(result, "检查二维码状态成功")
         else:
