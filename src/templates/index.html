@@ -580,6 +580,50 @@
             10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
             20%, 40%, 60%, 80% { transform: translateX(5px); }
         }
+        /* 提示框样式 */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .toast {
+            padding: 12px 20px;
+            border-radius: 4px;
+            color: white;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            max-width: 300px;
+            text-align: center;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .toast.success {
+            background-color: #4caf50;
+        }
+
+        .toast.error {
+            background-color: #f44336;
+        }
+
+        .toast.warning {
+            background-color: #ff9800;
+        }
+
+        .toast.info {
+            background-color: #2196f3;
+        }
     </style>
 </head>
 <body>
@@ -875,6 +919,37 @@
                     <div style="margin-top: 20px;" id="aplayer-container"></div>
                 </div>
             </div>
+
+            <!-- 底部信息卡片 -->
+            <div class="card" style="margin-top: 30px; background-color: #f9f9f9; border-color: #e9e9e9;">
+                <div style="margin-bottom: 15px;">
+                    <h3 style="color: #666; font-size: 1.1rem; margin-bottom: 10px;">免责声明</h3>
+                    <p style="font-size: 0.9rem; color: #666; line-height: 1.6;">
+                        本工具仅用于学习交流，所有音乐资源均来自网络，版权归原作者及唱片公司所有。
+                        请支持正版音乐，下载后请在24小时内删除，请勿用于商业用途。
+                        如侵犯到您的权益，请联系我们删除。
+                    </p>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <h3 style="color: #666; font-size: 1.1rem; margin-bottom: 10px;">相关链接</h3>
+                    <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                        <a href="https://github.com" target="_blank" style="color: #42a5f5; text-decoration: none; font-size: 0.9rem; display: flex; align-items: center;">
+                            <span style="margin-right: 5px;">🔗</span> GitHub源码
+                        </a>
+                        <a href="#" style="color: #42a5f5; text-decoration: none; font-size: 0.9rem; display: flex; align-items: center;">
+                            <span style="margin-right: 5px;">📧</span> 联系我们
+                        </a>
+                        <a href="#" style="color: #42a5f5; text-decoration: none; font-size: 0.9rem; display: flex; align-items: center;">
+                            <span style="margin-right: 5px;">📜</span> 使用条款
+                        </a>
+                    </div>
+                </div>
+                
+                <div style="text-align: center; font-size: 0.8rem; color: #999; margin-top: 20px; padding-top: 10px; border-top: 1px dashed #e0e0e0;">
+                    © 2023 高品质音乐无损解析 | 仅供学习交流使用
+                </div>
+            </div>
         </main>
     </div>
 
@@ -889,7 +964,7 @@
             </div>
         </div>
     </div>
-
+    
     <script type="module">
         import { embedMetadata } from "{{ url_for('static', filename='js/metadataWriter.js') }}";
         // 所有DOM操作代码包裹在DOMContentLoaded事件中
@@ -1467,7 +1542,7 @@
                 const currentSongs = allSongs.slice(startIndex, endIndex);
                 
                 if (currentSongs.length === 0) {
-                    alert('当前页没有可下载的歌曲');
+                    showToast('当前页没有可下载的歌曲', 'warning');
                     return;
                 }
                 
@@ -1525,8 +1600,7 @@
                             }
                         }, 500);
                     });
-                    
-                    alert(`批量下载完成！成功: ${successCount}/${total}`);
+                    showToast(`批量下载完成！成功: ${successCount}/${total}`, 'success');
                     
                 } finally {
                     isBatchDownloading = false;
@@ -1736,21 +1810,21 @@
 
                                     resolve();
                                 } else {
-                                    alert(data.data.msg || '解析失败，请重试');
+                                    showToast(data.data.msg || '解析失败，请重试', 'error');
                                     reject(new Error(data.data.msg || '解析失败'));
                                 }
                             } catch (e) {
-                                alert('解析响应数据失败');
+                                showToast('解析响应数据失败', 'error');
                                 reject(e);
                             }
                         } else {
-                            alert(`请求失败，状态码: ${xhr.status}`);
+                            showToast(`请求失败，状态码: ${xhr.status}`, 'error');
                             reject(new Error(`请求失败，状态码: ${xhr.status}`));
                         }
                     };
                     
                     xhr.onerror = function() {
-                        alert('解析请求失败: 网络错误');
+                        showToast('解析请求失败: 网络错误', 'error');
                         reject(new Error('解析请求失败: 网络错误'));
                     };
                     
@@ -1933,18 +2007,18 @@
                                 document.getElementById('pagination').style.display = 'none';
                             }
                         } catch (e) {
-                            alert('解析歌单数据失败');
+                            showToast('解析歌单数据失败', 'error');
                             console.error(e);
                         }
                     } else {
-                        alert(`歌单请求失败，状态码: ${xhr.status}`);
+                        showToast(`歌单请求失败，状态码: ${xhr.status}`, 'error');
                     }
                 };
                 
                 xhr.onerror = function() {
                     button.disabled = false;
                     button.innerHTML = originalText;
-                    alert('歌单解析请求失败: 网络错误');
+                    showToast('歌单解析请求失败: 网络错误', 'error');
                 };
                 
                 xhr.send();
@@ -2004,18 +2078,18 @@
                                 document.getElementById('pagination').style.display = 'none';
                             }
                         } catch (e) {
-                            alert('解析专辑数据失败');
+                            showToast('解析专辑数据失败', 'error');
                             console.error(e);
                         }
                     } else {
-                        alert(`专辑请求失败，状态码: ${xhr.status}`);
+                        showToast(`请求失败，状态码: ${xhr.status}`, 'error');
                     }
                 };
                 
                 xhr.onerror = function() {
                     button.disabled = false;
                     button.innerHTML = originalText;
-                    alert('专辑解析请求失败: 网络错误');
+                    showToast('专辑解析请求失败: 网络错误', 'error');
                 };
                 
                 xhr.send();
@@ -2028,7 +2102,7 @@
                 const songName = document.getElementById('single-song-title').textContent.trim();
                 
                 if (!musicId) {
-                    alert('请先解析音乐获取信息');
+                    showToast('请先解析音乐获取信息', 'info');
                     return;
                 }
 
@@ -2141,7 +2215,7 @@
 
                 const id = extractIdFromUrl(input, type);
                 if (!id) {
-                    alert('无法从输入中提取有效的ID，请检查输入是否正确');
+                    showToast('无法从输入中提取有效的ID，请检查输入是否正确', 'error');
                     return;
                 }
 
@@ -2195,21 +2269,21 @@
     
                 // 接口请求失败（如网络错误），视为Cookie无效
                 if (!success) {
-                    alert('Cookie验证失败，请稍后重试');
+                    showToast('Cookie验证失败，请稍后重试', 'error');
                     openSidebar();
                     return false;
                 }
                 
                 // Cookie无效：提示扫码
                 if (!valid) {
-                    alert('Cookie无效或已过期，请先在设置中扫码登录');
+                    showToast('Cookie无效或已过期，请先在设置中扫码登录', 'warning');
                     openSidebar();
                     return false;
                 }
                 
                 // Cookie有效但非VIP：提示非VIP
                 if (!isVip) {
-                    alert('您不是VIP用户，无法执行此操作');
+                    showToast('您不是VIP用户，无法执行此操作', 'warning');
                     return false;  // 不打开侧边栏，仅提示
                 }
                 
@@ -2237,6 +2311,33 @@
                     bigPicModal.style.display = 'none';
                 }
             });
+
+            // 提示框功能
+            function showToast(message, type = 'info', duration = 3000) {
+                // 创建容器（如果不存在）
+                let container = document.querySelector('.toast-container');
+                if (!container) {
+                    container = document.createElement('div');
+                    container.className = 'toast-container';
+                    document.body.appendChild(container);
+                }
+                
+                // 创建提示框
+                const toast = document.createElement('div');
+                toast.className = `toast ${type}`;
+                toast.textContent = message;
+                container.appendChild(toast);
+                
+                // 显示提示框
+                setTimeout(() => toast.classList.add('show'), 10);
+                
+                // 自动关闭
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                    setTimeout(() => toast.remove(), 300);
+                }, duration);
+            }
+
         });
     </script>
 </body>
