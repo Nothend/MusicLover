@@ -38,7 +38,7 @@ services:
 4. 访问服务：打开浏览器访问 `http://localhost:5151`
 5. 在网页的右上角【设置】中，扫码登录云音乐，系统自动更新cookie，无需手动填写
 6. 查看日志：`docker-compose logs -f`
-7. 可以通过config.yaml中的ENABLE_QR_CODE变量控制扫码功能是否显示
+7. 可以通过config.yaml中的QR_PASSWORDE变量控制扫码功能是否显示
 
 ## 二、项目说明
 
