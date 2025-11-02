@@ -624,6 +624,17 @@
         .toast.info {
             background-color: #2196f3;
         }
+        #password-error {
+            visibility: hidden; /* 默认隐藏（但占位） */
+            height: 1.2em; /* 固定高度，确保占位稳定 */
+            line-height: 1.2em; /* 保持行高一致 */
+            margin: 5px 0 0 0; /* 固定外边距，避免跳动 */
+            padding: 0; /* 清除默认内边距 */
+        }
+
+        #password-error.visible {
+            visibility: visible; /* 显示时仅改变可见性 */
+        }
     </style>
 </head>
 <body>
@@ -642,7 +653,7 @@
                     <label for="qr-password">请输入密码以启用扫码功能</label>
                     <input type="password" id="qr-password" class="form-control" placeholder="输入密码">
                     <button id="verify-password" class="btn btn-primary" style="margin-top: 10px;">验证密码</button>
-                    <p id="password-error" style="color: #f44336; font-size: 0.8rem; margin-top: 5px; display: none;">密码错误，请重试</p>
+                    <p id="password-error" style="color: #f44336; font-size: 0.8rem; margin-top: 5px;">密码错误，请重试</p>
                 </div>
                 
                 <!-- 扫码功能区域 - 默认隐藏 -->
@@ -921,7 +932,7 @@
             </div>
 
             <!-- 底部信息卡片 -->
-            <div class="card" style="margin-top: 30px; background-color: #f9f9f9; border-color: #e9e9e9;">
+            <div class="card" style="margin-top: 30px;">
                 <div style="margin-bottom: 15px;">
                     <h3 style="color: #666; font-size: 1.1rem; margin-bottom: 10px;">免责声明</h3>
                     <p style="font-size: 0.9rem; color: #666; line-height: 1.6;">
@@ -1011,10 +1022,6 @@
                     closeSidebar();
                 }
             });
-
-            // 侧边栏新增功能
-            // 倒计时功能（固定180秒，生成二维码后自动开始）
-            const countdownInput = document.getElementById('countdown-input');
             
             // 二维码生成功能（生成后自动开始倒计时）
             // 获取DOM元素
@@ -1083,8 +1090,33 @@
                     if (remainingSeconds <= 0) {
                         clearInterval(countdownInterval);
                         clearInterval(checkInterval);
-                        updateStatus('二维码已过期（3分钟已到）', 'danger');
-                        qrImage.style.opacity = '0.5'; // 视觉上标记过期
+                        
+                        // 1. 更新状态提示
+                        updateStatus('二维码已过期，请重新生成', 'danger');
+                        
+                        // 2. 二维码过期样式（变灰+红色边框）
+                        qrImage.style.opacity = '0.5';
+                        qrImage.style.filter = 'grayscale(100%)'; // 转为黑白
+                        qrImage.style.border = '2px solid #f44336'; // 红色边框
+                        
+                        // 3. 在二维码上方添加"已过期"水印（需要修改HTML结构）
+                        const expiredWatermark = document.createElement('div');
+                        expiredWatermark.id = 'qr-expired-watermark';
+                        expiredWatermark.style.position = 'absolute';
+                        expiredWatermark.style.top = '50%';
+                        expiredWatermark.style.left = '50%';
+                        expiredWatermark.style.transform = 'translate(-50%, -50%)';
+                        expiredWatermark.style.color = '#f44336';
+                        expiredWatermark.style.fontWeight = 'bold';
+                        expiredWatermark.style.fontSize = '1.2rem';
+                        expiredWatermark.style.textShadow = '0 0 3px white';
+                        expiredWatermark.style.pointerEvents = 'none'; // 不影响点击
+                        expiredWatermark.textContent = '已过期';
+                        
+                        // 添加水印到二维码容器
+                        const qrContainer = document.querySelector('.qr-code-container');
+                        qrContainer.style.position = 'relative'; // 确保水印定位正确
+                        qrContainer.appendChild(expiredWatermark);
                     }
                 }, 1000);
             }
@@ -1198,11 +1230,18 @@
                 // 清除定时器
                 stopAllIntervals();
                 
-                // 重置UI
+                // 移除过期水印
+                const expiredWatermark = document.getElementById('qr-expired-watermark');
+                if (expiredWatermark) {
+                    expiredWatermark.remove();
+                }
+                
+                // 重置UI样式
                 qrImage.src = '';
                 qrImage.style.display = 'none';
                 qrImage.style.opacity = '1';
-                qrImage.style.border = 'none';
+                qrImage.style.filter = 'none'; // 清除灰度滤镜
+                qrImage.style.border = 'none'; // 清除边框
                 qrPlaceholder.style.display = 'block';
                 loginStatus.textContent = '';
                 loginStatus.className = '';
@@ -1297,8 +1336,10 @@
             }
 
             function showError(message) {
+                if (!passwordError) return;
                 passwordError.textContent = message;
-                passwordError.style.display = 'block';
+                passwordError.classList.add('visible');
+                
                 
                 // 输入框抖动效果
                 passwordInput.style.animation = 'none';
@@ -1306,7 +1347,7 @@
                 passwordInput.style.animation = 'shake 0.5s';
                 
                 setTimeout(() => {
-                    passwordError.style.display = 'none';
+                    passwordError.classList.remove('visible');
                     passwordInput.style.animation = '';
                 }, 3000);
             }
