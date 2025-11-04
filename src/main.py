@@ -9,6 +9,7 @@
 """
 
 import logging
+import os
 import sys
 import time
 import traceback
@@ -213,6 +214,9 @@ user_config=Config()
 app = Flask(__name__)
 api_service = MusicAPIService(user_config)
 
+# 从环境变量获取运行模式（默认调试模式）
+RUN_MODE = os.getenv("RUN_MODE", "debug")  # 调试时为"debug"，生产为"production"
+
 # 初始化频率限制器（关键补充）
 limiter = Limiter(
     get_remote_address,  # 基于客户端IP限制
@@ -326,8 +330,13 @@ def handle_internal_error(e):
 
 @app.route('/')
 def index():
-    # 假设你的index.html放在templates文件夹中
-    return render_template('index.html')
+    # 调试模式用test版JS，生产模式用正式版JS
+    if RUN_MODE == "debug":
+        js_main_file = "js/main.test.js"  # 调试用未加密JS
+    else:
+        js_main_file = "js/main.js"       # 生产用正式JS
+    # 传递JS文件名到模板
+    return render_template('index.html', js_main_file=js_main_file)
 
 @app.route('/api/check-password', methods=['GET'])
 @limiter.limit("30/minute")  # 每分钟最多30次请求
