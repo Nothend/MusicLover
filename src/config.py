@@ -62,7 +62,15 @@ class Config:
             'max_file_size': 524288000,  # 500MB
             'request_timeout': 30,
             'log_level': 'INFO',
-            'cors_origins': '*'
+            'cors_origins': '*',
+            'API_KEY': '9527',  # 替换为你的API密钥
+            'RATE_LIMIT': '200/hour',  # 每小时最多100次请求（可调整）
+            'IP_WHITELIST': ["127.0.0.1", "192.168.1.0/24"],  # 信任的IP白名单
+            'PROTECTED_ENDPOINTS': [  # 需要保护的接口路径
+                    "/song", "/search", "/playlist", "/album", 
+                    "/download", "/api/qr", "/song/detail"
+                ],
+            'PUBLIC_ENDPOINTS': ["/health", "/api/info", "/"]  # 公开接口（无需保护）
         }
         
     def load_config(self) -> None:
