@@ -244,7 +244,7 @@ def before_request():
         api_service.logger.warning(f"无效的IP白名单配置或客户端IP: {user_config.ip_whitelist} / {client_ip}")
 
     # 2.2 跳过公开接口
-    if any(request.path.startswith(ep) for ep in user_config.public_endpoints):
+    if any(request.path == ep for ep in user_config.public_endpoints):
         return None
 
     # 3. 验证请求来源（核心优化部分）
