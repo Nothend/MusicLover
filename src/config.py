@@ -166,6 +166,31 @@ class Config:
     
     # 以下为新增的参数获取属性（直接返回配置值或默认值）
     @property
+    def api_key(self) -> str:
+        """API密钥，用于验证非网页来源的请求"""
+        return self.get('API_KEY', self._defaults['API_KEY'])
+
+    @property
+    def rate_limit(self) -> str:
+        """请求频率限制，格式如"200/hour"（每小时200次）"""
+        return self.get('RATE_LIMIT', self._defaults['RATE_LIMIT'])
+
+    @property
+    def ip_whitelist(self) -> list[str]:
+        """信任的IP白名单，白名单内的IP无需验证直接访问"""
+        return self.get('IP_WHITELIST', self._defaults['IP_WHITELIST'])
+
+    @property
+    def protected_endpoints(self) -> list[str]:
+        """需要保护的API接口路径列表"""
+        return self.get('PROTECTED_ENDPOINTS', self._defaults['PROTECTED_ENDPOINTS'])
+
+    @property
+    def public_endpoints(self) -> list[str]:
+        """公开接口路径列表（无需验证）"""
+        return self.get('PUBLIC_ENDPOINTS', self._defaults['PUBLIC_ENDPOINTS'])
+    
+    @property
     def qr_password(self) -> str:
         return self.get('QR_PASSWORD', self._defaults['QR_PASSWORD'])
 
