@@ -213,29 +213,80 @@ user_config=Config()
 app = Flask(__name__)
 api_service = MusicAPIService(user_config)
 
+# 初始化频率限制器（关键补充）
+limiter = Limiter(
+    get_remote_address,  # 基于客户端IP限制
+    app=app,
+    default_limits=[user_config.rate_limit],  # 使用配置中的频率限制（如"200/hour"）
+    storage_uri="memory://",  # 简单内存存储（生产环境建议用redis）
+    strategy="fixed-window"  # 固定窗口计数策略
+)
+
 
 @app.before_request
 def before_request():
-    """请求前处理"""
-    # 记录请求信息
+    """请求前处理：包含日志记录和安全检查"""
+    # 1. 记录请求信息（原有逻辑）
     api_service.logger.info(
         f"{request.method} {request.path} - IP: {request.remote_addr} - "
         f"User-Agent: {request.headers.get('User-Agent', 'Unknown')}"
     )
+
+    # 2. 安全检查逻辑（新增）
+    # 2.1 先检查IP白名单（白名单内的IP直接放行）
+    client_ip = request.remote_addr
+    try:
+        # 解析客户端IP和白名单
+        client_ip_obj = ipaddress.ip_address(client_ip)
+        for ip in user_config.ip_whitelist:
+            if client_ip_obj in ipaddress.ip_network(ip, strict=False):
+                return None  # IP在白名单内，直接放行
+    except ValueError:
+        api_service.logger.warning(f"无效的IP白名单配置或客户端IP: {user_config.ip_whitelist} / {client_ip}")
+
+    # 2.2 跳过公开接口（原有逻辑）
+    if any(request.path.startswith(ep) for ep in user_config.public_endpoints):
+        return None
+
+    # 验证请求是否来自允许的网页（普通用户通过网页访问时放行）
+    allowed_origins = [o.strip() for o in user_config.allowed_origins.split(',')]  # 注意：如果ALLOWED_ORIGINS是配置中的键，需要在Config类中添加对应的属性
+    referer = request.headers.get('Referer', '')  # 来源网页地址
+    origin = request.headers.get('Origin', '')    # 跨域请求的来源域名
+
+    # 检查来源是否合法（Referer或Origin匹配允许的域名）
+    is_from_allowed_origin = False
+    if referer:
+        # 提取Referer中的域名（如从https://your-domain.com/path提取your-domain.com）
+        from urllib.parse import urlparse
+        referer_domain = urlparse(referer).netloc
+        is_from_allowed_origin = any(referer_domain.endswith(allowed) for allowed in allowed_origins)
+    elif origin:
+        # 直接匹配Origin（跨域请求时使用）
+        is_from_allowed_origin = origin in allowed_origins
+
+    # 来自合法网页的请求直接放行（普通用户正常使用）
+    if is_from_allowed_origin:
+        return None
+
+    # 非网页来源的请求（可能是恶意调用），需要API密钥验证
+    api_key = request.headers.get("X-API-Key") or request.args.get("api_key")
+    if not api_key or api_key != user_config.api_key:
+        return APIResponse.error(
+            "未授权访问：请通过官方网页使用，或提供有效的API密钥", 
+            status_code=401, 
+            error_code="Unauthorized"
+        )
 
 
 @app.after_request
 def after_request(response: Response) -> Response:
     """请求后处理 - 设置CORS头"""
     response.headers.add('Access-Control-Allow-Origin', user_config.cors_origins)
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    # 补充允许X-API-Key头（关键修改）
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-API-Key')
     response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
     response.headers.add('Access-Control-Max-Age', '3600')
-    
-    # 记录响应信息
-    api_service.logger.info(f"响应状态: {response.status_code}")
     return response
-
 
 @app.errorhandler(400)
 def handle_bad_request(e):
@@ -261,6 +312,7 @@ def index():
     return render_template('index.html')
 
 @app.route('/api/check-password', methods=['GET'])
+@limiter.limit("30/minute")  # 每分钟最多30次请求
 def check_password() -> str:
     # 获取用户输入的密码
     user_password = request.args.get('password', '')
@@ -282,6 +334,7 @@ def check_password() -> str:
 
 
 @app.route('/health', methods=['GET'])
+@limiter.limit("10/minute")  # 每分钟最多10次请求
 def health_check():
     """健康检查API"""
     try:
@@ -305,6 +358,7 @@ def health_check():
 
 @app.route('/song', methods=['GET', 'POST'])
 @app.route('/Song_V1', methods=['GET', 'POST'])  # 向后兼容
+@limiter.limit("30/minute")  # 每分钟最多30次请求
 def get_song_info():
     """获取歌曲信息API"""
     try:
@@ -456,6 +510,7 @@ def get_song_info():
         return APIResponse.error(f"服务器错误: {str(e)}", 500)
 
 @app.route('/song/detail', methods=['GET', 'POST'])
+@limiter.limit("30/minute")  # 每分钟最多30次请求
 def song_detail_api():
     """获取歌曲详情接口（需有效Cookie才能访问）"""
     try:
@@ -562,6 +617,7 @@ def song_detail_api():
 
 @app.route('/search', methods=['GET', 'POST'])
 @app.route('/Search', methods=['GET', 'POST'])  # 向后兼容
+@limiter.limit("30/minute")  # 每分钟最多30次请求
 def search_music_api():
     """搜索音乐API"""
     try:
@@ -630,6 +686,7 @@ def search_music_api():
 
 @app.route('/playlist', methods=['GET', 'POST'])
 @app.route('/Playlist', methods=['GET', 'POST'])  # 向后兼容
+@limiter.limit("30/minute")  # 每分钟最多30次请求
 def get_playlist():
     """获取歌单详情API"""
     try:
@@ -682,6 +739,7 @@ def get_playlist():
 
 @app.route('/album', methods=['GET', 'POST'])
 @app.route('/Album', methods=['GET', 'POST'])  # 向后兼容
+@limiter.limit("30/minute")  # 每分钟最多30次请求
 def get_album():
     """获取专辑详情API"""
     try:
@@ -735,6 +793,7 @@ def get_album():
 
 @app.route('/download', methods=['GET', 'POST'])
 @app.route('/Download', methods=['GET', 'POST'])  # 向后兼容
+@limiter.limit("30/minute")  # 每分钟最多30次下载
 def download_music_api():
     """下载音乐API"""
     try:
@@ -871,6 +930,7 @@ def download_music_api():
 
 # 新增：二维码登录相关接口
 @app.route('/api/qr/generate', methods=['GET'])
+@limiter.limit("5/minute")  # 每分钟最多5次请求
 def generate_qr():
     """生成登录二维码"""
     try:
@@ -885,6 +945,7 @@ def generate_qr():
 
 
 @app.route('/api/qr/check', methods=['GET'])
+@limiter.limit("10/minute")  # 每分钟最多10次请求
 def check_qr_status():
     """检查二维码登录状态"""
     try:
@@ -921,6 +982,7 @@ def check_qr_status():
         return APIResponse.error(f"检查二维码状态失败: {str(e)}", 500)
     
 @app.route('/api/check-cookie', methods=['GET'])
+@limiter.limit("10/minute")  # 每分钟最多10次请求
 def check_cookie():
     """检查Cookie是否有效及VIP状态"""
     try:
@@ -941,6 +1003,7 @@ def check_cookie():
         return APIResponse.error(f"检查Cookie状态失败: {str(e)}", 500)
 
 @app.route('/api/info', methods=['GET'])
+@limiter.limit("10/minute")  # 每分钟最多10次请求
 def api_info():
     """API信息接口"""
     try:
