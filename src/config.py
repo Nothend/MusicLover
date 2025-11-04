@@ -70,7 +70,8 @@ class Config:
                     "/song", "/search", "/playlist", "/album", 
                     "/download", "/api/qr", "/song/detail"
                 ],
-            'PUBLIC_ENDPOINTS': ["/health", "/api/info", "/"]  # 公开接口（无需保护）
+            'PUBLIC_ENDPOINTS': ["/health", "/api/info", "/"],  # 公开接口（无需保护）
+            'ALLOWED_ORIGINS': 'http://localhost:5151'
         }
         
     def load_config(self) -> None:
@@ -166,29 +167,34 @@ class Config:
     
     # 以下为新增的参数获取属性（直接返回配置值或默认值）
     @property
+    def allowed_origins(self) -> str:
+        """API密钥，用于验证非网页来源的请求"""
+        return self.get_nested('WebSecurity.ALLOWED_ORIGINS', self._defaults['ALLOWED_ORIGINS'])
+    
+    @property
     def api_key(self) -> str:
         """API密钥，用于验证非网页来源的请求"""
-        return self.get('API_KEY', self._defaults['API_KEY'])
+        return self.get_nested('WebSecurity.API_KEY', self._defaults['API_KEY'])
 
     @property
     def rate_limit(self) -> str:
         """请求频率限制，格式如"200/hour"（每小时200次）"""
-        return self.get('RATE_LIMIT', self._defaults['RATE_LIMIT'])
+        return self.get_nested('WebSecurity.RATE_LIMIT', self._defaults['RATE_LIMIT'])
 
     @property
     def ip_whitelist(self) -> list[str]:
         """信任的IP白名单，白名单内的IP无需验证直接访问"""
-        return self.get('IP_WHITELIST', self._defaults['IP_WHITELIST'])
+        return self.get_nested('WebSecurity.IP_WHITELIST', self._defaults['IP_WHITELIST'])
 
     @property
     def protected_endpoints(self) -> list[str]:
         """需要保护的API接口路径列表"""
-        return self.get('PROTECTED_ENDPOINTS', self._defaults['PROTECTED_ENDPOINTS'])
+        return self.get_nested('WebSecurity.PROTECTED_ENDPOINTS', self._defaults['PROTECTED_ENDPOINTS'])
 
     @property
     def public_endpoints(self) -> list[str]:
         """公开接口路径列表（无需验证）"""
-        return self.get('PUBLIC_ENDPOINTS', self._defaults['PUBLIC_ENDPOINTS'])
+        return self.get_nested('WebSecurity.PUBLIC_ENDPOINTS', self._defaults['PUBLIC_ENDPOINTS'])
     
     @property
     def qr_password(self) -> str:
