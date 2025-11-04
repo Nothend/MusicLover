@@ -23,3 +23,7 @@ docker-compose.test.yml
 Dockerfile
 web1.png
 web2.png
+index1.html
+index2.html
+main1.js
+main2.js
