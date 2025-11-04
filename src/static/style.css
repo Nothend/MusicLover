@@ -1,0 +1,622 @@
+/* 基础样式重置 */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+    background-color: #f5f7fa;
+    color: #333;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* 卡片样式 - 确保分界清晰 */
+.card {
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+/* 顶部导航 */
+header {
+    background: linear-gradient(to right, #e3f2fd, #bbdefb);
+    padding: 15px 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.logo {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #333;
+}
+
+.settings-btn {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    color: #42a5f5;
+    cursor: pointer;
+    padding: 5px 10px;
+}
+
+/* 主内容区 */
+main {
+    padding: 30px 0;
+}
+
+/* 标题卡片 */
+.title-card h2 {
+    font-size: 2rem;
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+.title-card p {
+    text-align: center;
+    color: #666;
+}
+
+/* 解析方式选择 */
+.options-card h3 {
+    margin-bottom: 20px;
+    font-size: 1.2rem;
+    color: #555;
+}
+
+.options-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.parse-option {
+    background: #e3f2fd;
+    border: 2px solid #90caf9;
+    border-radius: 6px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+}
+
+.parse-option .option-icon {
+    font-size: 2rem;
+    color: #42a5f5;
+    margin-bottom: 10px;
+    font-weight: bold;
+}
+
+.parse-option.active {
+    background: #bbdefb;
+    border-color: #42a5f5;
+}
+
+/* 解析区域 */
+.parse-card h3 {
+    margin-bottom: 20px;
+    font-size: 1.2rem;
+    color: #555;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #666;
+}
+
+.form-control {
+    width: 100%;
+    padding: 10px 15px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1rem;
+}
+
+.btn {
+    display: inline-block;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    font-size: 1rem;
+    cursor: pointer;
+    text-align: center;
+}
+
+.btn-primary {
+    background: linear-gradient(to right, #64b5f6, #42a5f5);
+    color: white;
+    width: 100%;
+}
+
+/* 下拉菜单 */
+.select-container {
+    position: relative;
+}
+
+.select-display {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.select-options {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 5px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    z-index: 10;
+    display: none;
+}
+
+.select-option {
+    padding: 10px 15px;
+    cursor: pointer;
+}
+
+.select-option:hover, .select-option.active {
+    background: #bbdefb;
+}
+
+/* 结果区域 */
+.result-card {
+    display: none;
+}
+
+.result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.result-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.result-stats {
+    color: #666;
+    font-size: 0.9rem;
+    margin: 10px 0 20px;
+}
+
+.result-meta {
+    color: #666;
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+}
+
+.btn-success {
+    background-color: #4caf50;
+    color: white;
+}
+
+/* 歌曲列表 */
+.song-list {
+    margin-bottom: 20px;
+}
+
+.song-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.song-index {
+    width: 40px;
+    text-align: center;
+    color: #888;
+}
+
+.song-info {
+    flex: 1;
+    padding: 0 10px;
+}
+
+.song-info img {
+    width: 50px;
+    height: 50px;
+    border-radius: 4px;
+    margin-right: 10px;
+    vertical-align: middle;
+}
+
+.song-actions {
+    padding: 0 10px;
+}
+
+/* 分页 */
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 20px;
+}
+
+.page-item {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin: 0 3px;
+    cursor: pointer;
+    background: #f9f9f9;
+}
+
+.page-item.active {
+    background: #42a5f5;
+    color: white;
+    border-color: #42a5f5;
+}
+
+.page-item:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* 侧边栏设置 */
+.settings-sidebar {
+    position: fixed;
+    right: 0;
+    top: 0;
+    height: 100vh;
+    width: 0;
+    background: white;
+    box-shadow: -2px 0 10px rgba(0,0,0,0.1);
+    overflow: hidden;
+    z-index: 1000;
+    transition: width 0.3s ease;
+}
+
+.sidebar-header {
+    padding: 15px;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    z-index: 10;
+}
+
+.sidebar-content {
+    padding: 15px;
+    height: calc(100vh - 60px);
+    overflow-y: auto;
+    box-sizing: border-box;
+}
+
+.settings-section {
+    margin-bottom: 30px;
+}
+
+.settings-section h4 {
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    color: #555;
+}
+
+.settings-section h4 .section-icon {
+    margin-right: 10px;
+    color: #42a5f5;
+    font-weight: bold;
+}
+
+.settings-group {
+    background: #f9f9f9;
+    padding: 15px;
+    border-radius: 4px;
+    margin-bottom: 15px;
+}
+
+.settings-group p {
+    margin-bottom: 10px;
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.radio-group {
+    margin-bottom: 10px;
+}
+
+.radio-group label {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.radio-group input {
+    margin-right: 10px;
+}
+
+.close-btn {
+    background: #f44336;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+/* 徽章样式 */
+.badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    margin-left: 5px;
+}
+
+.badge-recommend {
+    background: #e8f5e9;
+    color: #2e7d32;
+}
+
+.badge-success {
+    background: #e8f5e9;
+    color: #2e7d32;
+}
+
+.badge-warning {
+    background: #fff8e1;
+    color: #ff8f00;
+}
+
+.badge-downloading {
+    background: #e3f2fd;
+    color: #1976d2;
+}
+
+.badge-failed {
+    background: #ffebee;
+    color: #c62828;
+}
+
+/* 单首歌曲结果样式 */
+.single-result {
+    display: none;
+}
+
+.song-title {
+    font-size: 1.5rem;
+    margin-bottom: 10px;
+}
+
+.song-artist {
+    color: #666;
+    margin-bottom: 20px;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin: 20px 0;
+}
+
+.info-item {
+    display: flex;
+}
+
+.info-label {
+    color: #888;
+    width: 70px;
+}
+
+.info-value {
+    font-weight: 500;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 10px;
+    margin: 20px 0;
+}
+
+.action-buttons .btn {
+    flex: 1;
+}
+
+.btn-secondary {
+    background: #bbdefb;
+    color: #333;
+}
+
+.back-link {
+    color: #42a5f5;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: 15px;
+    font-size: 0.9rem;
+}
+
+.back-link .back-text {
+    margin-right: 5px;
+}
+
+/* 进度条样式 */
+.song-progress {
+    margin-top: 10px;
+    display: none;
+}
+
+.progress-bar-container {
+    height: 6px;
+    background-color: #e0e0e0;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background-color: #4caf50;
+    transition: width 0.3s ease;
+}
+
+/* 加载动画 */
+.loading {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,.3);
+    border-radius: 50%;
+    border-top-color: white;
+    animation: spin 1s ease-in-out infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* 侧边栏新增样式 */
+.sidebar-divider {
+    height: 1px;
+    background-color: #e0e0e0;
+    margin: 20px 0;
+}
+
+.countdown-display {
+    font-size: 1.5rem;
+    font-weight: bold;
+    text-align: center;
+    margin: 10px 0;
+    color: #42a5f5;
+}
+
+.qr-code-container {
+    text-align: center;
+    margin: 15px 0;
+    padding: 10px;
+    border: 1px dashed #ddd;
+    border-radius: 4px;
+    width: 220px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.qr-code-image {
+    width: 200px;
+    height: 200px;
+    object-fit: contain;
+    margin: 0 auto;
+    display: none;
+}
+
+.payment-qr-container {
+    text-align: center;
+    margin: 15px 0;
+    width: 220px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.payment-qr-image {
+    width: 200px;
+    height: 200px;
+    object-fit: contain;
+    margin: 0 auto;
+}
+
+/* 扫描结果文本框固定样式 */
+#scan-result {
+    resize: none;
+}
+/* 密码输入错误时的抖动动画 */
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+    20%, 40%, 60%, 80% { transform: translateX(5px); }
+}
+/* 提示框样式 */
+.toast-container {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.toast {
+    padding: 12px 20px;
+    border-radius: 4px;
+    color: white;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    max-width: 300px;
+    text-align: center;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.toast.success {
+    background-color: #4caf50;
+}
+
+.toast.error {
+    background-color: #f44336;
+}
+
+.toast.warning {
+    background-color: #ff9800;
+}
+
+.toast.info {
+    background-color: #2196f3;
+}
+#password-error {
+    visibility: hidden;
+    height: 1.2em;
+    line-height: 1.2em;
+    margin: 5px 0 0 0;
+    padding: 0;
+}
+
+#password-error.visible {
+    visibility: visible;
+}
