@@ -15,7 +15,7 @@ import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from flask import Flask, jsonify, request, send_file, render_template, Response
 from config import Config
 
@@ -232,11 +232,10 @@ def before_request():
         f"User-Agent: {request.headers.get('User-Agent', 'Unknown')}"
     )
 
-    # 2. 安全检查逻辑（新增）
+    # 2. 安全检查逻辑
     # 2.1 先检查IP白名单（白名单内的IP直接放行）
     client_ip = request.remote_addr
     try:
-        # 解析客户端IP和白名单
         client_ip_obj = ipaddress.ip_address(client_ip)
         for ip in user_config.ip_whitelist:
             if client_ip_obj in ipaddress.ip_network(ip, strict=False):
@@ -244,31 +243,50 @@ def before_request():
     except ValueError:
         api_service.logger.warning(f"无效的IP白名单配置或客户端IP: {user_config.ip_whitelist} / {client_ip}")
 
-    # 2.2 跳过公开接口（原有逻辑）
+    # 2.2 跳过公开接口
     if any(request.path.startswith(ep) for ep in user_config.public_endpoints):
         return None
 
-    # 验证请求是否来自允许的网页（普通用户通过网页访问时放行）
-    allowed_origins = [o.strip() for o in user_config.allowed_origins.split(',')]  # 注意：如果ALLOWED_ORIGINS是配置中的键，需要在Config类中添加对应的属性
-    referer = request.headers.get('Referer', '')  # 来源网页地址
-    origin = request.headers.get('Origin', '')    # 跨域请求的来源域名
+    # 3. 验证请求来源（核心优化部分）
+    # 3.1 解析允许的来源（去除协议，只保留域名+端口）
+    allowed_origins = []
+    for origin in user_config.allowed_origins.split(','):
+        origin_stripped = origin.strip()
+        if not origin_stripped:
+            continue
+        # 解析域名（去除http:///https://）
+        parsed = urlparse(origin_stripped)
+        # 若有netloc（如https://jfjt.cc → netloc是jfjt.cc），则用netloc；否则直接用origin（如localhost:5151）
+        allowed_domain = parsed.netloc if parsed.netloc else origin_stripped
+        allowed_origins.append(allowed_domain)
 
-    # 检查来源是否合法（Referer或Origin匹配允许的域名）
-    is_from_allowed_origin = False
+    # 3.2 获取请求的Referer和Origin（同样去除协议）
+    referer = request.headers.get('Referer', '')
+    origin = request.headers.get('Origin', '')
+
+    # 解析Referer的域名（去除协议）
+    referer_domain = ''
     if referer:
-        # 提取Referer中的域名（如从https://your-domain.com/path提取your-domain.com）
-        from urllib.parse import urlparse
-        referer_domain = urlparse(referer).netloc
-        is_from_allowed_origin = any(referer_domain.endswith(allowed) for allowed in allowed_origins)
-    elif origin:
-        # 直接匹配Origin（跨域请求时使用）
-        is_from_allowed_origin = origin in allowed_origins
+        parsed_referer = urlparse(referer)
+        referer_domain = parsed_referer.netloc  # 例如 https://dm.jfjt.cc → netloc是dm.jfjt.cc
 
-    # 来自合法网页的请求直接放行（普通用户正常使用）
+    # 解析Origin的域名（去除协议，Origin本身通常不带路径，直接是域名）
+    origin_domain = ''
+    if origin:
+        parsed_origin = urlparse(origin)
+        origin_domain = parsed_origin.netloc if parsed_origin.netloc else origin
+
+    # 3.3 严格匹配：Referer或Origin的域名必须完全等于允许的域名（不匹配子域名）
+    is_from_allowed_origin = (
+        referer_domain in allowed_origins  # Referer域名完全匹配
+        or origin_domain in allowed_origins  # Origin域名完全匹配
+    )
+
+    # 4. 来源合法则放行，否则验证API密钥
     if is_from_allowed_origin:
         return None
 
-    # 非网页来源的请求（可能是恶意调用），需要API密钥验证
+    # 非合法来源，验证API密钥
     api_key = request.headers.get("X-API-Key") or request.args.get("api_key")
     if not api_key or api_key != user_config.api_key:
         return APIResponse.error(
