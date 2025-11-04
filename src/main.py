@@ -358,7 +358,7 @@ def health_check():
 
 @app.route('/song', methods=['GET', 'POST'])
 @app.route('/Song_V1', methods=['GET', 'POST'])  # 向后兼容
-@limiter.limit("30/minute")  # 每分钟最多30次请求
+@limiter.limit("60/minute")  # 每分钟最多30次请求
 def get_song_info():
     """获取歌曲信息API"""
     try:
@@ -510,7 +510,7 @@ def get_song_info():
         return APIResponse.error(f"服务器错误: {str(e)}", 500)
 
 @app.route('/song/detail', methods=['GET', 'POST'])
-@limiter.limit("30/minute")  # 每分钟最多30次请求
+@limiter.limit("60/minute")  # 每分钟最多30次请求
 def song_detail_api():
     """获取歌曲详情接口（需有效Cookie才能访问）"""
     try:
