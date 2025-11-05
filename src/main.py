@@ -609,9 +609,13 @@ def song_detail_api():
         # 生成安全文件名
         # 获取音乐信息
         title = song_data['name']
-        artists = ', '.join(artist['name'] for artist in song_data['ar'])
+        # 生成艺术家列表（新增）
+        ar_list = song_data.get('ar', [])  # 安全获取艺术家列表，默认空列表
+        artists_list = [artist['name'] for artist in ar_list] if ar_list else ['未知艺术家']
+        # 生成艺术家字符串（保持不变）
+        artists_str = '&'.join(artists_list)  # 复用列表生成字符串，避免重复遍历
         # 生成可能的文件名
-        base_filename = f"{artists} - {title}"
+        base_filename = f"{artists_str} - {title}"
         safe_filename = api_service.downloader.get_sanitize_filename(base_filename)
 
         file_ext = api_service.downloader.get_file_extension(url_data['url'])
@@ -621,7 +625,8 @@ def song_detail_api():
         music_info = {
             'id': music_id,
             'name': title,
-            'artist_string': artists,
+            'artist_string': artists_str,
+            'artists': artists_list,  # 新增列表类型字段，存储多个艺术家
             'album': song_data['al']['name'],
             'pic_url': song_data['al']['picUrl'],
             'file_type': url_data['type'],
