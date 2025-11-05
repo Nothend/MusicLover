@@ -39,3 +39,14 @@ mysql:
   password: admin
   # 数据库名称
   database: music_tag
+WebSecurity:
+  # 安全配置
+  API_KEY: '6868'  # 替换为你的API密钥
+  RATE_LIMIT: '200/hour'  # 每小时最多100次请求（可调整）
+  IP_WHITELIST: ["127.0.0.1", "192.168.1.0/24"]  # 信任的IP白名单
+  PROTECTED_ENDPOINTS: [  # 需要保护的接口路径
+        "/song", "/search", "/playlist", "/album", 
+        "/download", "/api/qr", "/song/detail"
+    ]
+  PUBLIC_ENDPOINTS: ["/health", "/api/info", "/"]  # 公开接口（无需保护）
+  ALLOWED_ORIGINS: "https://hotgirl.com,https://dm.jfjt.cc,http://localhost:5151"
