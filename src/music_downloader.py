@@ -25,7 +25,7 @@ import logging
 import requests
 from mutagen.flac import FLAC
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, TIT2, TPE1, TALB, TDRC, TRCK, APIC
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, TDRC, TRCK, APIC,TYER, USLT
 from mutagen.mp4 import MP4
 
 from music_api import NeteaseAPI, APIException
@@ -277,7 +277,7 @@ class MusicDownloader:
         except Exception as e:
             raise DownloadException(f"获取音乐信息时发生错误: {e}")
     
-    def download_music_file(self, music_id: int, quality: str = "standard") -> DownloadResult:
+    def download_music_file(self, music_info: MusicInfo, quality: str = "standard") -> DownloadResult:
         """下载音乐文件到本地
         
         Args:
@@ -288,12 +288,10 @@ class MusicDownloader:
             下载结果对象
         """
         try:
-            # 获取音乐信息
-            music_info = self.get_music_info(music_id, quality)
-            
-            # 生成文件名
-            filename = f"{music_info.artists} - {music_info.name}"
-            safe_filename = self._sanitize_filename(filename)
+            # 生成可能的文件名
+            artists_joined = '&'.join(music_info.artists)  # 列表元素用 & 拼接为字符串
+            base_filename = f"{artists_joined} - {music_info.name}"
+            safe_filename = self._sanitize_filename(base_filename)
             
             # 确定文件扩展名
             file_ext = self._determine_file_extension(music_info.download_url)
@@ -341,6 +339,102 @@ class MusicDownloader:
                 error_message=f"下载过程中发生错误: {e}"
             )
     
+    def download_song(self, music_info: MusicInfo, quality: str = "standard", re_format: str = "file") -> DownloadResult:
+        """下载音乐API（保留返回格式逻辑，使用DownloadResult）"""
+        try:
+            # 验证音质参数
+            valid_qualities = ['standard', 'exhigh', 'lossless', 'hires', 'sky', 'jyeffect', 'jymaster']
+            if quality not in valid_qualities:
+                return DownloadResult(
+                    success=False,
+                    error_message=f"无效的音质参数，支持: {', '.join(valid_qualities)}"
+                )
+            
+            # 验证返回格式
+            if re_format not in ['file', 'json']:
+                return DownloadResult(
+                    success=False,
+                    error_message="返回格式只支持 'file' 或 'json'"
+                )
+            
+            
+            # 获取音乐基本信息
+            music_id = music_info.id
+            
+
+            # 生成可能的文件名
+            base_filename = f"{music_info.artists} - {music_info.name}"
+            safe_filename = self._sanitize_filename(base_filename)
+
+            file_ext = self._determine_file_extension(music_info.download_url)
+            # 检查所有可能的文件
+            
+            file_path = self.download_dir / f"{safe_filename}{file_ext}"
+            
+            
+            # 检查文件是否已存在
+            if file_path.exists():
+                self.logger.info(f"文件已存在: {safe_filename}{file_ext}")
+            else:
+                # 调用下载文件方法（核心下载逻辑）
+                download_result = self.download_music_file(music_info, quality)
+                if not download_result.success:
+                    return DownloadResult(
+                        success=False,
+                        error_message=f"下载失败: {download_result.error_message}",
+                        music_info=music_info
+                    )
+                file_path = Path(download_result.file_path)
+                self.logger.info(f"下载完成: {safe_filename}{file_ext}")
+            
+            # 根据返回格式返回结果（保留核心逻辑）
+            if re_format == 'json':
+                # 构建JSON响应数据
+                response_data = {
+                    'music_id': music_id,
+                    'name': music_info['name'],
+                    'artist': music_info['artist_string'],
+                    'album': music_info['album'],
+                    'quality': quality,
+                    'quality_name': self.NeteaseApi._get_quality_display_name(quality),
+                    'file_type': music_info['file_type'],
+                    'file_size': music_info['file_size'],
+                    'file_size_formatted': self.NeteaseApi._format_file_size(music_info['file_size']),
+                    'file_path': str(file_path.absolute()),
+                    'filename': safe_filename + file_ext,
+                    'duration': music_info['duration'],
+                    'publishTime': music_info['publishTime']
+                }
+                return DownloadResult(
+                    success=True,
+                    file_path=str(file_path),
+                    file_size=file_path.stat().st_size,
+                    music_info=music_info,
+                    data=response_data  # 将JSON数据存入data字段
+                )
+            else:  # re_format == 'file'
+                if not file_path.exists():
+                    return DownloadResult(
+                        success=False,
+                        error_message="文件不存在"
+                    )
+                # 返回文件相关信息（实际文件发送由调用方处理）
+                return DownloadResult(
+                    success=True,
+                    file_path=str(file_path),
+                    file_size=file_path.stat().st_size,
+                    music_info=music_info
+                )
+            
+        except Exception as e:
+            # 简化异常日志，去掉traceback（如果不需要详细堆栈）
+            self.logger.error(f"下载音乐异常: {str(e)}")
+            return DownloadResult(
+                success=False,
+                error_message=f"下载异常: {str(e)}"
+            )
+
+
     async def download_music_file_async(self, music_id: int, quality: str = "standard") -> DownloadResult:
         """异步下载音乐文件到本地
         
@@ -404,46 +498,7 @@ class MusicDownloader:
                 error_message=f"异步下载过程中发生错误: {e}"
             )
     
-    def download_music_to_memory(self, music_info:MusicInfo, quality: str = "standard") -> Tuple[bool, BytesIOType, MusicInfo]:
-        """下载音乐到内存（含标签写入）"""
-        try:
-            # 检查是否超过并发限制
-            with self.download_lock:
-                if self.active_downloads >= self.max_concurrent:
-                    raise DownloadException(f"超过最大并发下载数（{self.max_concurrent}），请稍后再试")
-                self.active_downloads += 1
-
-            try:
-                # 流式下载到内存
-                response = requests.get(
-                    music_info.download_url,
-                    stream=True,
-                    timeout=30,
-                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-                )
-                response.raise_for_status()
-
-                # 写入内存
-                audio_data = BytesIO()
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        audio_data.write(chunk)
-                audio_data.seek(0)
-
-                # 内存中写入标签
-                # 确定文件扩展名
-                file_ext = self._determine_file_extension(music_info.download_url)
-                tagged_audio = self._write_music_tags_memory(audio_data, music_info, file_ext)
-
-                return True, tagged_audio, music_info
-
-            finally:
-                # 无论成功失败，都减少活跃计数
-                with self.download_lock:
-                    self.active_downloads -= 1
-
-        except Exception as e:
-            raise DownloadException(f"内存下载失败: {str(e)}")
+    
         
     def async_download_multiple(self, music_ids: List[int], quality: str = "standard") -> List[Dict]:
         """异步下载多个音乐到内存
@@ -549,87 +604,147 @@ class MusicDownloader:
             print(f"写入音乐标签失败: {e}")
     
     def _write_mp3_tags(self, file_path: Path, music_info: MusicInfo) -> None:
-        """写入MP3标签"""
+        """写入MP3标签（图片>5MB自动压缩，失败不影响其他标签）"""
         try:
-            audio = MP3(str(file_path),ID3=ID3)
+            audio = MP3(str(file_path), ID3=ID3)
+            if not audio.tags:
+                audio.add_tags()
             
-            # 添加ID3标签
-            audio.tags.add(TIT2(encoding=3, text=music_info.name))
-            audio.tags.add(TPE1(encoding=3, text=music_info.artists))
-            audio.tags.add(TALB(encoding=3, text=music_info.album))
+            # ---------------------- 1. 保存基础标签 ----------------------
+            # 基础信息（标题/艺术家/专辑等）
+            audio.tags.setall('TIT2', [TIT2(encoding=3, text=music_info.name)])
+            audio.tags.setall('TPE1', [TPE1(encoding=3, text=music_info.artists)])
+            audio.tags.setall('TALB', [TALB(encoding=3, text=music_info.album)])
             
             if music_info.track_number > 0:
-                audio.tags.add(TRCK(encoding=3, text=str(music_info.track_number)))
+                audio.tags.setall('TRCK', [TRCK(encoding=3, text=str(music_info.track_number))])
             
-            # 下载并添加封面
+            # 发行时间
+            if hasattr(music_info, 'publishTime') and music_info.publishTime:
+                full_date = music_info.publishTime.strip()
+                try:
+                    year = full_date.split('-')[0] if '-' in full_date else full_date
+                    audio.tags.setall('TYER', [TYER(encoding=3, text=year)])
+                    audio.tags.setall('TDRC', [TDRC(encoding=3, text=full_date)])
+                except Exception as e:
+                    self.logger.warning(f"发行时间处理失败: {str(e)}")
+            
+            # 歌词
+            if music_info.lyric:
+                audio.tags.setall('USLT', [USLT(
+                    encoding=3, lang='XXX', desc='Lyrics', text=music_info.lyric.strip()
+                )])
+            if music_info.tlyric:
+                audio.tags.setall('USLT:Translated', [USLT(
+                    encoding=3, lang='XXX', desc='Translated Lyrics', text=music_info.tlyric.strip()
+                )])
+            
+            # 先保存基础标签
+            audio.save()
+            self.logger.debug(f"已保存MP3基础标签: {file_path.name}")
+            
+            # ---------------------- 2. 处理图片（>5MB自动压缩） ----------------------
             if music_info.pic_url:
                 try:
+                    # 下载图片
                     pic_response = requests.get(music_info.pic_url, timeout=10)
                     pic_response.raise_for_status()
-                    audio.tags.add(APIC(
-                        encoding=3,
-                        mime='image/jpeg',
-                        type=3,
-                        desc='Cover',
-                        data=pic_response.content
-                    ))
-                except:
-                    pass  # 封面下载失败不影响主流程
+                    image_data = pic_response.content
+                    original_size = len(image_data)
+                    max_size = 5 * 1024 * 1024  # 5MB
+                    
+                    # 压缩逻辑
+                    if original_size > max_size:
+                        self.logger.debug(f"MP3图片过大（{original_size}字节），开始压缩...")
+                        compressed_data = self._compress_image(image_data, max_size)
+                        if not compressed_data:
+                            self.logger.warning("压缩后仍超过5MB，跳过封面")
+                            return  # 退出图片处理逻辑
+                        image_data = compressed_data
+                        self.logger.debug(f"压缩后大小: {len(image_data)}字节")
+                    
+                    # 添加封面并保存
+                    mime_type = pic_response.headers.get('content-type', 'image/jpeg')
+                    audio.tags.setall('APIC', [APIC(
+                        encoding=3, mime=mime_type, type=3, desc='Cover', data=image_data
+                    )])
+                    audio.save()
+                    self.logger.debug("已添加MP3封面并保存")
+                
+                except Exception as e:
+                    self.logger.warning(f"MP3封面处理失败（不影响其他标签）: {str(e)}")
             
-            audio.save()
         except Exception as e:
-            print(f"写入MP3标签失败: {e}")
-    
+            self.logger.error(f"MP3基础标签处理失败: {str(e)}")
+                    
     def _write_flac_tags(self, file_path: Path, music_info: MusicInfo) -> None:
-        """写入FLAC标签"""
+        """写入FLAC标签（图片>5MB自动压缩，失败不影响其他标签）"""
         try:
             audio = FLAC(str(file_path))
             
+            # ---------------------- 1. 保存基础标签 ----------------------
+            # 基础信息
             audio['TITLE'] = music_info.name
             audio['ARTIST'] = music_info.artists
             audio['ALBUM'] = music_info.album
-
             if music_info.track_number > 0:
                 audio['TRACKNUMBER'] = str(music_info.track_number)
             
-            # 新增：发行时间（需要从音乐信息中获取publishTime）
-            # 注意：需要确保music_info中包含publishTime字段（后续需在MusicInfo类中添加）
+            # 发行时间
             if hasattr(music_info, 'publishTime') and music_info.publishTime:
                 full_date = music_info.publishTime
-                
-                # 单独写入年份（提高兼容性）
-                if '-' in full_date:
-                    audio['YEAR'] = full_date.split('-')[0]  # 提取YYYY部分
-                else:
-                    audio['YEAR'] = full_date  # 若本身就是年份格式
-                # 写入完整日期（标准DATE字段）
-                audio['DATE'] = full_date.split('-')[0]  # 提取YYYY部分
-            # 新增：歌词标签（使用自定义字段存储歌词和翻译歌词）
+                audio['YEAR'] = full_date.split('-')[0] if '-' in full_date else full_date
+                audio['DATE'] = full_date
+            else:
+                self.logger.debug("publishTime为空，跳过日期标签")
+            
+            # 歌词
             if music_info.lyric:
-                audio['LYRICS'] = music_info.lyric.strip()  # 原歌词
+                audio['LYRICS'] = music_info.lyric.strip()
             if music_info.tlyric:
-                audio['TRANSLATEDLYRICS'] = music_info.tlyric.strip()  # 翻译歌词
-
-            # 下载并添加封面
+                audio['TRANSLATEDLYRICS'] = music_info.tlyric.strip()
+            
+            # 先保存基础标签
+            audio.save()
+            self.logger.debug(f"已保存FLAC基础标签: {file_path.name}")
+            
+            # ---------------------- 2. 处理图片（>5MB自动压缩） ----------------------
             if music_info.pic_url:
                 try:
+                    # 下载图片
                     pic_response = requests.get(music_info.pic_url, timeout=10)
                     pic_response.raise_for_status()
+                    image_data = pic_response.content
+                    original_size = len(image_data)
+                    max_size = 5 * 1024 * 1024  # 5MB
                     
+                    # 压缩逻辑
+                    if original_size > max_size:
+                        self.logger.debug(f"FLAC图片过大（{original_size}字节），开始压缩...")
+                        compressed_data = self._compress_image(image_data, max_size)
+                        if not compressed_data:
+                            self.logger.warning("压缩后仍超过5MB，跳过封面")
+                            return  # 退出图片处理逻辑
+                        image_data = compressed_data
+                        self.logger.debug(f"压缩后大小: {len(image_data)}字节")
+                    
+                    # 添加封面并保存
                     from mutagen.flac import Picture
                     picture = Picture()
-                    picture.type = 3  # Cover (front)
-                    picture.mime = 'image/jpeg'
+                    picture.type = 3
+                    picture.mime = 'image/jpeg' if image_data.startswith(b'\xff\xd8') else 'image/png'
                     picture.desc = 'Cover'
-                    picture.data = pic_response.content
+                    picture.data = image_data
                     audio.add_picture(picture)
-                except:
-                    pass  # 封面下载失败不影响主流程
+                    audio.save()
+                    self.logger.debug("已添加FLAC封面并保存")
+                
+                except Exception as e:
+                    self.logger.warning(f"FLAC封面处理失败（不影响其他标签）: {str(e)}")
             
-            audio.save()
         except Exception as e:
-            print(f"写入FLAC标签失败: {e}")
-    
+            self.logger.error(f"FLAC基础标签处理失败: {str(e)}")
+      
     def _write_m4a_tags(self, file_path: Path, music_info: MusicInfo) -> None:
         """写入M4A标签"""
         try:
@@ -656,185 +771,7 @@ class MusicDownloader:
             print(f"写入M4A标签失败: {e}")
 
     
-    def _write_music_tags_memory(self, audio_data: BytesIOType, music_info: MusicInfo, file_ext: str) -> BytesIOType:
-        """在内存中写入音乐标签
-        
-        Args:
-            audio_data: 内存中的音频数据流
-            music_info: 音乐信息
-            file_ext: 文件扩展名（.mp3/.flac/.m4a）
-            
-        Returns:
-            写入标签后的音频数据流
-        """
-        try:
-            # 1. 检查原始音频数据是否为空
-            audio_data.seek(0, 2)  # 移到末尾
-            data_size = audio_data.tell()  # 获取数据大小
-            if data_size == 0:
-                self.logger.error("原始音频数据为空，无法写入标签")
-                return audio_data
-            # 将BytesIO内容转换为mutagen可处理的文件对象
-            audio_data.seek(0)  # 确保从开头读取
-            temp_data = audio_data.read()  # 读取所有内容
-            temp_io = BytesIO(temp_data)  # 创建临时IO用于处理
-            
-            if file_ext == '.mp3':
-                self._write_mp3_tags_memory(temp_io, music_info)
-            elif file_ext == '.flac':
-                self._write_flac_tags_memory(temp_io, music_info)
-            elif file_ext == '.m4a':
-                self._write_m4a_tags_memory(temp_io, music_info)
-            
-            # 4. 验证写入后的数据是否有效
-            temp_io.seek(0, 2)
-            new_size = temp_io.tell()
-            if new_size == 0:
-                self.logger.error("标签写入后内存流为空，返回原始数据")
-                audio_data.seek(0)
-                return audio_data
-
-            temp_io.seek(0)
-            return temp_io
-            
-        except Exception as e:
-            self.logger.error(f"内存写入标签失败: {str(e)}", exc_info=True)
-            audio_data.seek(0)
-            return audio_data
-
-    def _write_mp3_tags_memory(self, io: BytesIOType, music_info: MusicInfo):
-        """MP3内存标签写入"""
-        try:
-            # 关键：确保指针在开头，否则ID3可能读不到数据
-            io.seek(0)
-            self.logger.debug(f"MP3标签写入前，内存流位置: {io.tell()}")
-            try:
-                audio = ID3(io)  # 读取现有标签（若无则创建）
-            except:
-                audio = ID3()  # 新建标签
-                
-            # 基本标签
-            audio["TIT2"] = TIT2(encoding=3, text=music_info.name)  # 标题
-            audio["TPE1"] = TPE1(encoding=3, text=music_info.artist_string)  # 艺术家
-            audio["TALB"] = TALB(encoding=3, text=music_info.album)  # 专辑
-            audio["TDRC"] = TDRC(encoding=3, text=str(music_info.publishTime[:4]))  # 发行年份
-
-            if music_info.track_number > 0:
-                audio["TRCK"] = TRCK(encoding=3, text=str(music_info.track_number)) # 曲目编号
-            
-            # 专辑封面（如果有）
-            if music_info.pic_url:
-                try:
-                    import requests
-                    cover_response = requests.get(music_info.pic_url, timeout=10)
-                    cover_response.raise_for_status()
-                    if cover_response.status_code == 200:
-                        audio["APIC"] = APIC(
-                            encoding=3,
-                            mime='image/jpeg',
-                            type=3,
-                            desc=u'Cover',
-                            data=cover_response.content
-                        )
-                    self.logger.debug("成功添加MP3封面")
-                except Exception as e:
-                    self.logger.error(f"获取MP3封面失败: {e}")
-
-            # 关键：保存前确保指针在开头，显式指定fileobj
-            io.seek(0)
-            audio.save(fileobj=io)
-            self.logger.debug(f"MP3标签保存成功，内存流位置: {io.tell()}")        
-        except Exception as e:
-            self.logger.error(f"MP3标签写入失败: {str(e)}", exc_info=True)
-
-    def _write_flac_tags_memory(self, io: BytesIOType, music_info: MusicInfo):
-        """写入FLAC标签"""
-        try:
-            # 确保指针在开头
-            io.seek(0)
-            self.logger.debug(f"FLAC标签写入前，内存流位置: {io.tell()}")
-            audio = FLAC(io)
-            
-            audio['TITLE'] = music_info.name
-            audio['ARTIST'] = music_info.artists
-            audio['ALBUM'] = music_info.album
-
-            if music_info.track_number > 0:
-                audio['TRACKNUMBER'] = str(music_info.track_number)
-            
-            # 新增：发行时间（需要从音乐信息中获取publishTime）
-            # 处理发行时间标签（DATE: YYYY-MM-DD，YEAR: YYYY）
-            if hasattr(music_info, 'publishTime') and music_info.publishTime:
-                full_date = music_info.publishTime.strip()
-                # 校验是否为 YYYY-MM-DD 格式
-                if re.match(r'^\d{4}-\d{2}-\d{2}$', full_date):
-                    audio['DATE'] = full_date  # 完整日期
-                    audio['YEAR'] = full_date.split('-')[0]  # 提取年份
-                else:
-                    self.logger.warning(f"publishTime格式错误（需YYYY-MM-DD），实际值: {full_date}，跳过日期标签")
-            else:
-                self.logger.debug("publishTime为空，跳过日期标签")
-            # 新增：歌词标签（使用自定义字段存储歌词和翻译歌词）
-            if music_info.lyric:
-                audio['LYRICS'] = music_info.lyric.strip()  # 原歌词
-            if music_info.tlyric:
-                audio['TRANSLATEDLYRICS'] = music_info.tlyric.strip()  # 翻译歌词
-
-            # 下载并添加封面
-            if music_info.pic_url:
-                try:
-                    pic_response = requests.get(music_info.pic_url, timeout=10)
-                    pic_response.raise_for_status()
-                    
-                    from mutagen.flac import Picture
-                    picture = Picture()
-                    picture.type = 3  # Cover (front)
-                    picture.mime = 'image/jpeg'
-                    picture.desc = 'Cover'
-                    picture.data = pic_response.content
-                    audio.add_picture(picture)
-                except Exception as e:
-                    self.logger.error(f"获取FLAC封面失败: {e}")
-            
-            # 保存前重置指针
-            io.seek(0)
-            audio.save(fileobj=io)
-            self.logger.debug(f"FLAC标签保存成功，内存流位置: {io.tell()}")
-        except Exception as e:
-            self.logger.error(f"FLAC标签写入失败: {str(e)}", exc_info=True)
-
-    def _write_m4a_tags_memory(self, io: BytesIOType, music_info: MusicInfo):
-        """写入M4A标签"""
-        try:
-            # 确保指针在开头
-            io.seek(0)
-            self.logger.debug(f"M4A标签写入前，内存流位置: {io.tell()}")
-            audio = MP4(io)
-            
-            audio['\xa9nam'] = music_info.name
-            audio['\xa9ART'] = music_info.artists
-            audio['\xa9alb'] = music_info.album
-            audio["\xa9day"] = str(music_info['publishTime'])[:4]  # 年份
-            
-            if music_info.track_number > 0:
-                audio['trkn'] = [(music_info.track_number, 0)]
-            
-            # 下载并添加封面
-            if music_info.pic_url:
-                try:
-                    pic_response = requests.get(music_info.pic_url, timeout=10)
-                    pic_response.raise_for_status()
-                    audio['covr'] = [pic_response.content]
-                except Exception as e:
-                    self.logger.error(f"获取M4A封面失败: {e}")
-            
-            # 保存前重置指针
-            io.seek(0)
-            audio.save(fileobj=io)
-            self.logger.debug(f"M4A标签保存成功，内存流位置: {io.tell()}")
-        except Exception as e:
-            self.logger.error(f"M4A标签写入失败: {str(e)}", exc_info=True)
-
+    
     def convert_to_music_info(self,music_info_dict: dict) -> MusicInfo:
         """
         将音乐信息字典转换为MusicInfo实例

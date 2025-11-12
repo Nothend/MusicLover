@@ -874,7 +874,7 @@ def download_music_api():
         music_info = {
             'id': music_id,
             'name': song_data['name'],
-            'artist_string': ', '.join(artist['name'] for artist in song_data['ar']),
+            'artist_string': '&'.join(artist['name'] for artist in song_data['ar']),
             'album': song_data['al']['name'],
             'pic_url': song_data['al']['picUrl'],
             'file_type': url_data['type'],
@@ -899,13 +899,14 @@ def download_music_api():
         # 检查所有可能的文件
         filename = f"{safe_filename}{file_ext}"
         
-        # 【核心修改】删除本地文件检查逻辑，改为内存下载
         try:
-            # 调用内存下载方法（含标签写入）
             m_info=api_service.downloader.convert_to_music_info(music_info)
-            success, audio_data, _ = api_service.downloader.download_music_to_memory(m_info, quality)
-            if not success:
-                return APIResponse.error("下载失败: 内存传输异常", 500)
+            download_result = api_service.downloader.download_song(m_info, quality,return_format)
+            if not download_result.success:
+                return APIResponse.error("下载失败: 传输异常", 500)
+            
+            file_path = Path(download_result.file_path)
+            api_service.logger.info(f"下载完成: {filename}")
         except DownloadException as e:
             api_service.logger.error(f"下载异常: {e}")
             return APIResponse.error(f"下载失败: {str(e)}", 500)
@@ -929,22 +930,19 @@ def download_music_api():
             }
             return APIResponse.success(response_data, "下载完成")
         else:
-             # 【核心修改】从内存数据流发送文件，而非本地路径
+            # 返回文件下载
+            if not file_path.exists():
+                return APIResponse.error("文件不存在", 404)
+            
             try:
-                # 确保数据流指针在开头
-                audio_data.seek(0)
-                
                 response = send_file(
-                    audio_data,  # 内存中的数据流
-                    as_attachment=True,  # 强制浏览器下载
+                    str(file_path),
+                    as_attachment=True,
                     download_name=filename,
                     mimetype=f"audio/{music_info['file_type']}"
                 )
-                # 保持原有自定义头信息
                 response.headers['X-Download-Message'] = 'Download completed successfully'
                 response.headers['X-Download-Filename'] = quote(filename, safe='')
-                # 增强中文文件名兼容性
-                response.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename)}"
                 return response
             except Exception as e:
                 api_service.logger.error(f"发送文件失败: {e}")
