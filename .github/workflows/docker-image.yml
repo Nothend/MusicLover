@@ -28,8 +28,6 @@ jobs:
           # 标签规则：版本标签 + 固定 latest 标签
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
             type=raw,value=latest
 
       - name: 构建并推送镜像
