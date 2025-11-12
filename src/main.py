@@ -95,14 +95,27 @@ class MusicAPIService:
         
         self.use_navidrome=user_config.is_enabled('NAVIDROME')
         self.quality_level = self._user_config.get("QUALITY_LEVEL", "lossless")
-        # 创建下载目录
-        self.downloads_path = Path("/app/downloads")
-        self.downloads_path.mkdir(exist_ok=True)
+
+        # 判断是否为Docker环境（通过环境变量或文件路径）
+        self.is_docker_env = self._detect_docker_env()
+
+        # 设置下载目录
+        if self.is_docker_env:
+            self.downloads_path = Path("/app/downloads")
+        else:
+            # 测试环境：项目工程根目录下的downloads（自动识别项目根目录）
+            # 获取当前文件所在目录的父目录作为项目根目录
+            project_root = Path(__file__).parent.parent  # 当前文件在项目根目录下的某个子目录
+            self.downloads_path = project_root / "downloads"
+        
+        # 创建下载目录（如果不存在）
+        self.downloads_path.mkdir(exist_ok=True, parents=True)  # parents=True确保父目录也会创建
         
         self.logger = logging.getLogger(__name__)
-        self.logger.info(f"下载目录已设置为: /app/downloads")
+        self.logger.info(f"当前环境: {'Docker环境' if self.is_docker_env else '测试环境'}")
+        self.logger.info(f"下载目录已设置为: {self.downloads_path.resolve()}")
         self.logger.info(f"下载音乐品质已设置为: { {"standard": "标准", "exhigh": "极高", "lossless": "无损", "hires": "Hi-Res", "sky": "沉浸环绕声", "jyeffect": "高清环绕声", "jymaster": "超清母带"}.get (self.quality_level, "未知品质")}")
-        self.downloader = MusicDownloader(self.cookie_manager.parse_cookie_string(self.cookie_manager.cookie_string), "/app/downloads")
+        self.downloader = MusicDownloader(self.cookie_manager.parse_cookie_string(self.cookie_manager.cookie_string), str(self.downloads_path))
     @property
     def user_config(self) -> Config:
         return self._user_config
@@ -119,6 +132,28 @@ class MusicAPIService:
             self.logger.error(f"Cookie处理异常: {e}")
             return {}
     
+    def _detect_docker_env(self) -> bool:
+        """
+        检测是否为Docker环境，支持三种判断方式（按需选择或组合）
+        """
+        # 方式1：检查是否存在Docker相关环境变量（推荐，可手动设置）
+        if os.getenv("DOCKER_ENV", "false").lower() in ("true", "1"):
+            return True
+        
+        # 方式2：检查/proc/1/cgroup文件（Docker容器中通常包含docker字符串）
+        try:
+            with open("/proc/1/cgroup", "r") as f:
+                if "docker" in f.read():
+                    return True
+        except (FileNotFoundError, PermissionError):
+            pass
+        
+        # 方式3：检查是否存在/app目录（Docker镜像中常用的工作目录）
+        if Path("/app").exists() and Path("/app").is_dir():
+            return True
+        
+        return False
+
     def _extract_music_id(self, id_or_url: str) -> str:
         """提取音乐ID"""
         try:

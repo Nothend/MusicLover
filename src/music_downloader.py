@@ -89,7 +89,7 @@ class DownloadException(Exception):
 class MusicDownloader:
     """音乐下载器主类"""
     
-    def __init__(self,cookies: Dict[str, str], download_dir: str = "/app/downloads", max_concurrent: int = 3):
+    def __init__(self,cookies: Dict[str, str], download_dir: str = "./downloads", max_concurrent: int = 3):
         """
         初始化音乐下载器
         
