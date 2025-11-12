@@ -289,8 +289,7 @@ class MusicDownloader:
         """
         try:
             # 生成可能的文件名
-            artists_joined = '&'.join(music_info.artists)  # 列表元素用 & 拼接为字符串
-            base_filename = f"{artists_joined} - {music_info.name}"
+            base_filename = f"{music_info.artists} - {music_info.name}"
             safe_filename = self._sanitize_filename(base_filename)
             
             # 确定文件扩展名
