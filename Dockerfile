@@ -39,12 +39,6 @@ ENV PATH="/venv/bin:$PATH"
 # 复制应用代码（仅用本地代码）
 COPY src/ /app/src/
 
-# 删除测试文件（保留原逻辑）
-RUN find /app/src/static/js -name "*test*" -delete
-
-# 设置生产环境变量
-ENV RUN_MODE=production
-
 # 复制入口脚本
 COPY entrypoint.sh /app/
 RUN chmod +x /app/entrypoint.sh
