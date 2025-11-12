@@ -1,6 +1,3 @@
-// 调整原Flask模板路径为相对路径（关键修改）
-import { embedMetadata } from '/static/js/metadataWriter.js';
-
 // 所有DOM操作代码包裹在DOMContentLoaded事件中
 document.addEventListener('DOMContentLoaded', function() {
     // 全局变量
