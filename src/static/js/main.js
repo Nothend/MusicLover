@@ -454,6 +454,96 @@ document.addEventListener('DOMContentLoaded', function() {
         return qualityMap[level] || level;
     }
 
+    async function batchDownload() {
+        // 获取当前页所有未下载的歌曲项
+        const songItems = document.querySelectorAll('.song-item:not(.downloaded)');
+        if (songItems.length === 0) {
+            showToast('当前页没有可下载的歌曲', 'info');
+            return;
+        }
+
+        // 过滤出有效歌曲（含ID）并收集信息
+        const downloadTasks = [];
+        songItems.forEach(item => {
+            const songId = item.getAttribute('data-id');
+            const songName = item.querySelector('strong').textContent.trim();
+            if (songId) {
+                downloadTasks.push({
+                    songId,
+                    songName,
+                    songItemEl: item
+                });
+            }
+        });
+
+        if (downloadTasks.length === 0) {
+            showToast('未找到有效歌曲ID', 'warning');
+            return;
+        }
+
+        // 配置并发数（浏览器同一域名默认并发6个左右，设5个平衡性能与稳定性）
+        const MAX_CONCURRENT = 5;
+        const batchBtn = document.getElementById('batchDownloadBtn');
+        const originalText = batchBtn.innerHTML;
+        
+        // 禁用按钮并显示下载状态
+        batchBtn.disabled = true;
+        batchBtn.innerHTML = '<span class="loading"></span> 批量下载中...';
+
+        let successCount = 0;
+        let failedCount = 0;
+        const quality = document.getElementById('quality-select').value;
+
+        try {
+            // 并发控制：Promise池实现并行下载
+            const promisePool = async () => {
+                const results = [];
+                // 分批次处理任务，控制并发量
+                for (let i = 0; i < downloadTasks.length; i += MAX_CONCURRENT) {
+                    const currentBatch = downloadTasks.slice(i, i + MAX_CONCURRENT);
+                    // 并行执行当前批次的下载任务
+                    const batchResults = await Promise.allSettled(
+                        currentBatch.map(task => 
+                            downloadSingleSong(task.songId, quality, task.songName, task.songItemEl)
+                        )
+                    );
+                    results.push(...batchResults);
+                }
+                return results;
+            };
+
+            // 执行所有下载任务
+            const downloadResults = await promisePool();
+
+            // 统计下载结果
+            downloadResults.forEach(result => {
+                if (result.status === 'fulfilled' && result.value) {
+                    successCount++;
+                    // 标记为已下载，避免重复下载
+                    const taskIndex = downloadResults.indexOf(result);
+                    if (taskIndex >= 0 && downloadTasks[taskIndex]) {
+                        downloadTasks[taskIndex].songItemEl.classList.add('downloaded');
+                    }
+                } else {
+                    failedCount++;
+                }
+            });
+
+            // 显示批量下载结果提示
+            showToast(
+                `批量下载完成！成功：${successCount}首，失败：${failedCount}首`,
+                failedCount === 0 ? 'success' : 'warning'
+            );
+        } catch (error) {
+            console.error('批量下载异常:', error);
+            showToast('批量下载过程中发生错误', 'error');
+        } finally {
+            // 恢复按钮原始状态
+            batchBtn.disabled = false;
+            batchBtn.innerHTML = originalText;
+        }
+    };
+
     /**
      * 单首歌曲下载函数
      */
@@ -899,7 +989,7 @@ document.addEventListener('DOMContentLoaded', function() {
         downloadBtn.disabled = true;
         downloadBtn.innerHTML = '<span class="loading"></span> 下载中...';
 
-        const success = await clientDownloadSingleSong(
+        const success = await downloadSingleSong(
             musicId, 
             quality, 
             songName, 
@@ -921,7 +1011,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 批量下载按钮事件
     document.getElementById('batchDownloadBtn').addEventListener('click', () => {
-        requireValidCookie(clientFastDownload);
+        requireValidCookie(batchDownload);
     });
     
     // 返回歌单列表按钮事件
