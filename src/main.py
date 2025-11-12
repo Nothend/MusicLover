@@ -330,13 +330,7 @@ def handle_internal_error(e):
 
 @app.route('/')
 def index():
-    # 调试模式用test版JS，生产模式用正式版JS
-    if RUN_MODE == "debug":
-        js_main_file = "js/main.test.js"  # 调试用未加密JS
-    else:
-        js_main_file = "js/main.js"       # 生产用正式JS
-    # 传递JS文件名到模板
-    return render_template('index.html', js_main_file=js_main_file)
+    return render_template('index.html')
 
 @app.route('/api/check-password', methods=['GET'])
 @limiter.limit("30/minute")  # 每分钟最多30次请求

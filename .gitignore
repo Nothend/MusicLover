@@ -19,8 +19,4 @@ logs/
 #忽略自用config.yaml
 /config.yaml
 docker-compose.test.yml
-src/static/js/
-index.test.html
-main.test.js
-metadataWriter.test.js
 .dockerignore
