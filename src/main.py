@@ -246,7 +246,14 @@ class MusicAPIService:
     
 # 创建Flask应用和服务实例
 user_config=Config()
-app = Flask(__name__)
+
+# 明确指定static和template文件夹路径，确保Docker环境中能正确加载CSS/JS
+# 获取当前文件所在目录（/app/src）
+current_dir = Path(__file__).parent
+app = Flask(__name__, 
+            static_folder=str(current_dir / 'static'),
+            template_folder=str(current_dir / 'templates'))
+
 api_service = MusicAPIService(user_config)
 
 # 从环境变量获取运行模式（默认调试模式）
@@ -1116,6 +1123,9 @@ def start_api_server():
         print(f"  └─ GET  /api/info      - API信息")
         print("\n🎵 支持的音质:")
         print(f"  standard, exhigh, lossless, hires, sky, jyeffect, jymaster")
+        print("="*60)
+        print(f"📁 静态文件路径: {app.static_folder}")
+        print(f"📄 模板文件路径: {app.template_folder}")
         print("="*60)
         print(f"⏰ 启动时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print("🌟 服务已就绪，等待请求...\n")
