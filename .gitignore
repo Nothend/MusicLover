@@ -19,3 +19,6 @@ logs/
 #忽略自用config.yaml
 /config.yaml
 docker-compose.test.yml
+
+#忽略本地 AI 助手指引文件
+CLAUDE.md
