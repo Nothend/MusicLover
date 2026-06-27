@@ -22,9 +22,9 @@
         <div class="sidebar-content">
             <!-- 扫码功能验证 -->
             <div class="settings-section qr-auth-section">
-                <h4><span class="section-icon">🔒</span> 扫码功能验证</h4>
+                <h4><span class="section-icon">🔒</span>管理员功能验证</h4>
                 <div id="password-container" class="settings-group">
-                    <label for="qr-password">请输入密码以启用扫码功能</label>
+                    <label for="qr-password">请输入密码以启用管理员功能</label>
                     <input type="password" id="qr-password" class="form-control" placeholder="输入密码">
                     <button id="verify-password" class="btn btn-primary" style="margin-top: 10px;">验证密码</button>
                     <p id="password-error" style="color: #f44336; font-size: 0.8rem; margin-top: 5px;">密码错误，请重试</p>
@@ -64,7 +64,7 @@
             <div class="sidebar-divider"></div>
             <!-- 支持与捐赠 -->
             <div class="settings-section">
-                <h4><span class="section-icon">💖</span> 支持与捐赠</h4>
+                <h4><span class="section-icon">💖</span> 支持与赞助</h4>
                 <div class="settings-group">
                     <label for="payment-method">选择支付方式</label>
                     <select id="payment-method" class="form-control">
@@ -76,7 +76,7 @@
                                 src="{{ url_for('static', filename='wechat.png') }}" alt="微信收款码">
                     </div>
                     <p style="text-align: center; font-size: 0.9rem; color: #666;">
-                        感谢您的支持，您的捐赠将帮助我们持续改进服务
+                        感谢您的支持，您的赞助将帮助我们持续改进服务
                     </p>
                 </div>
             </div>
@@ -88,7 +88,10 @@
         <!-- 顶部导航 -->
         <header>
             <div class="container header-content">
-                <h1 class="logo">高品质音乐无损解析</h1>
+                <div class="logo-container">
+                    <h1 class="logo">高品质音乐无损解析</h1>
+                    <div class="version-tag">{{ app_version }}</div>
+                </div>
                 <button id="openSettings" class="settings-btn">设置</button>
             </div>
         </header>
@@ -285,8 +288,9 @@
             </div>
         </div>
     </div>
-
-    <!-- 引用外部JS（注意type="module"保持不变） -->
+    <button id="floatingActionBtn" class="floating-btn">
+        ❤
+    </button>
     <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

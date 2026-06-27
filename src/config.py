@@ -19,25 +19,29 @@ class Config:
             # 默认目标路径：父目录下的config.yaml
             self.config_path = self.parent_dir / "config.yaml"
 
-        # 3. 检查父目录配置文件是否存在，不存在则尝试拷贝同级模板
+        # 3. 检查目标配置文件是否存在，不存在则尝试从 config.sample.yaml 模板拷贝
         if not self.config_path.exists() or not self.config_path.is_file():
-            # 同级模板路径（src目录下的config.yaml）
-            template_path = self.current_dir / "config.yaml"
-            
+            # 唯一模板为 config.sample.yaml：优先项目根/容器 /app（parent_dir），其次 config.py 同级目录
+            template_candidates = [
+                self.parent_dir / "config.sample.yaml",
+                self.current_dir / "config.sample.yaml",
+            ]
+            template_path = next((p for p in template_candidates if p.exists() and p.is_file()), None)
+
             # 检查模板是否存在
-            if template_path.exists() and template_path.is_file():
+            if template_path is not None:
                 try:
                     # 确保父目录存在（Docker环境可能需要创建）
                     self.parent_dir.mkdir(parents=True, exist_ok=True)
-                    
+
                     # 拷贝模板到父目录
                     shutil.copy2(template_path, self.config_path)  # 保留文件元数据
-                    logging.info(f"父目录未找到配置文件，已从同级模板拷贝: {template_path} -> {self.config_path}")
+                    logging.info(f"未找到配置文件，已从模板拷贝: {template_path} -> {self.config_path}")
                 except Exception as e:
                     logging.error(f"拷贝配置模板失败（可能是权限问题）: {str(e)}")
                     raise  # 拷贝失败无法继续，抛出异常
             else:
-                logging.warning(f"同级目录未找到配置模板: {template_path}")
+                logging.warning(f"未找到配置模板 config.sample.yaml（已查找: {', '.join(str(p) for p in template_candidates)}）")
         
         # 4. 若上述步骤仍未找到配置文件，检查当前工作目录（兼容原有备用逻辑）
         if not self.config_path.exists() or not self.config_path.is_file():
@@ -65,13 +69,19 @@ class Config:
             'cors_origins': '*',
             'API_KEY': '9527',  # 替换为你的API密钥
             'RATE_LIMIT': '200/hour',  # 每小时最多100次请求（可调整）
+            'RATE_LIMIT_STORAGE': 'memory://',  # 频率限制存储后端，生产多进程可设为 redis://host:6379
             'IP_WHITELIST': ["127.0.0.1", "192.168.1.0/24"],  # 信任的IP白名单
             'PROTECTED_ENDPOINTS': [  # 需要保护的接口路径
                     "/song", "/search", "/playlist", "/album", 
                     "/download", "/api/qr", "/song/detail"
                 ],
             'PUBLIC_ENDPOINTS': ["/health", "/api/info", "/"],  # 公开接口（无需保护）
-            'ALLOWED_ORIGINS': 'http://localhost:5151'
+            'ALLOWED_ORIGINS': 'http://localhost:5151',
+            # 使用统计 + Bark 每日推送
+            'USE_BARK': False,
+            'BARK_URL': '',           # 形如 https://api.day.app/<your_key>
+            'BARK_TIME': '20:00',     # 每日推送时间（北京时间，HH:MM）
+            'STATS_FILE': '/app/logs/stats.json',  # 统计持久化路径（须在挂载卷内）
         }
         
     def load_config(self) -> None:
@@ -182,6 +192,12 @@ class Config:
         return self.get_nested('WebSecurity.RATE_LIMIT', self._defaults['RATE_LIMIT'])
 
     @property
+    def rate_limit_storage(self) -> str:
+        """频率限制的存储后端 URI。默认进程内存(memory://，重启/多进程会丢计数)，
+        生产环境建议配置为 redis://host:6379 以便多进程/多实例共享计数。"""
+        return self.get_nested('WebSecurity.RATE_LIMIT_STORAGE', self._defaults['RATE_LIMIT_STORAGE'])
+
+    @property
     def ip_whitelist(self) -> list[str]:
         """信任的IP白名单，白名单内的IP无需验证直接访问"""
         return self.get_nested('WebSecurity.IP_WHITELIST', self._defaults['IP_WHITELIST'])
@@ -196,6 +212,26 @@ class Config:
         """公开接口路径列表（无需验证）"""
         return self.get_nested('WebSecurity.PUBLIC_ENDPOINTS', self._defaults['PUBLIC_ENDPOINTS'])
     
+    @property
+    def use_bark(self) -> bool:
+        """是否启用 Bark 每日统计推送。"""
+        return self.get_nested('BARK.USE_BARK', self._defaults['USE_BARK']) is True
+
+    @property
+    def bark_url(self) -> str:
+        """Bark 推送地址（含 key），形如 https://api.day.app/<your_key>。"""
+        return self.get_nested('BARK.BARK_URL', self._defaults['BARK_URL'])
+
+    @property
+    def bark_time(self) -> str:
+        """每日推送时间，北京时间 HH:MM。"""
+        return self.get_nested('BARK.BARK_TIME', self._defaults['BARK_TIME'])
+
+    @property
+    def stats_file(self) -> str:
+        """统计数据持久化文件路径（须落在挂载卷内以免重建容器丢失）。"""
+        return self.get_nested('BARK.STATS_FILE', self._defaults['STATS_FILE'])
+
     @property
     def qr_password(self) -> str:
         return self.get('QR_PASSWORD', self._defaults['QR_PASSWORD'])

@@ -4,6 +4,15 @@ cookie: 'MUSIC_U=XXX;os=pc;appver=8.9.75;'
 # 日志级别
 LEVEL: "INFO"
 
+# API/服务配置
+web_host: '0.0.0.0'
+web_port: '5151'
+debug: false
+downloads_dir: 'downloads'
+max_file_size: 524288000
+request_timeout: 30
+log_level: 'INFO'
+cors_origins: '*'
 
 # 下载音乐的品质
 #     """音质等级枚举"""
@@ -43,10 +52,22 @@ WebSecurity:
   # 安全配置
   API_KEY: '6868'  # 替换为你的API密钥
   RATE_LIMIT: '200/hour'  # 每小时最多100次请求（可调整）
-  IP_WHITELIST: ["127.0.0.1", "192.168.1.0/24"]  # 信任的IP白名单
+  RATE_LIMIT_STORAGE: 'memory://'  # 限流计数存储；单进程部署用 memory:// 即可，仅多worker/多副本才需 redis://host:6379
+  # 信任的IP白名单（白名单内 IP 免来源校验直接放行）
+  # 注意：Docker 桥接网络下，Flask 看到的客户端 IP 往往是网关地址（如 172.x.x.x）或反代真实 IP，
+  # 未必落在下面网段；同源请求已自动放行，此白名单一般无需依赖。
+  IP_WHITELIST: ["127.0.0.1", "192.168.1.0/24"]
   PROTECTED_ENDPOINTS: [  # 需要保护的接口路径
         "/song", "/search", "/playlist", "/album", 
         "/download", "/api/qr", "/song/detail"
     ]
   PUBLIC_ENDPOINTS: ["/health", "/api/info", "/"]  # 公开接口（无需保护）
-  ALLOWED_ORIGINS: "https://hotgirl.com,https://dm.jfjt.cc,http://localhost:5151"
+  # 额外放行的来源（同源请求已自动放行，此处仅用于放行其它域名，如前置反代/CDN域名）
+  ALLOWED_ORIGINS: "http://localhost:5151"
+
+# 使用统计 + Bark 每日推送（每天定时把当期“去重访问IP数 + 下载歌曲数”推送到 Bark，推送后清零）
+BARK:
+  USE_BARK: false                                   # 是否开启每日统计推送
+  BARK_URL: "https://api.day.app/your_key_here"     # 你的 Bark 推送地址（含 key）
+  BARK_TIME: "20:00"                                # 每日推送时间（北京时间 HH:MM）
+  STATS_FILE: "/app/logs/stats.json"                # 统计持久化路径（须在挂载卷内，否则重建容器会丢）

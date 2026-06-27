@@ -43,7 +43,7 @@ class CookieManager:
         self.logger = logging.getLogger(__name__)
         """初始化Cookie管理器（无文件依赖）"""
         self.cookie_string: str = "" # 存储原始Cookie字符串
-        self.parsed_cookies: Dict[str, str] = []  # 解析后的Cookie字典
+        self.parsed_cookies: Dict[str, str] = {}  # 解析后的Cookie字典
         self.config = config
         self.set_cookie_string(config.get("cookie"))
         # 网易云音乐相关的重要Cookie字段
@@ -201,7 +201,7 @@ class CookieManager:
             适用于requests库的Cookie字典
         """
         try:
-            cookies = self.parse_cookies()
+            cookies = self.parsed_cookies
             
             # 过滤掉空值
             filtered_cookies = {k: v for k, v in cookies.items() if k and v}
@@ -254,7 +254,7 @@ class CookieManager:
             Cookie是否有效
         """
         try:
-            cookies = self.parse_cookies()
+            cookies = self.parsed_cookies
             
             if not cookies:
                 self.logger.warning("Cookie为空")
@@ -326,7 +326,7 @@ class CookieManager:
     def __str__(self) -> str:
         """字符串表示"""
         info = self.get_cookie_info()
-        return f"CookieManager(file={info['file_path']}, valid={info['is_valid']}, count={info['cookie_count']})"
+        return f"CookieManager(file={info['config_path']}, valid={info['is_valid']}, count={info['cookie_count']})"
     
     def __repr__(self) -> str:
         """详细字符串表示"""
@@ -334,23 +334,10 @@ class CookieManager:
 
 
 if __name__ == "__main__":
-    # 测试代码
-    import sys
-    
-    # 配置日志
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    
-    manager = CookieManager()
-    
+    # CookieManager 依赖 Config 实例，需通过主程序入口使用，此处仅作模块说明
     print("Cookie管理器模块")
     print("支持的功能:")
     print("- Cookie文件读写")
     print("- Cookie格式验证")
     print("- Cookie有效性检查")
-    print("- Cookie备份和恢复")
     print("- Cookie信息查看")
-    
-    # 显示当前Cookie信息
-    info = manager.get_cookie_info()
-    print(f"\n当前Cookie状态: {manager}")
-    print(f"详细信息: {info}")

@@ -1,6 +1,6 @@
 """网易云音乐API服务主程序
 
-提供网易云音乐相关API服务，包括：
+提供网易云音乐相关API服务,包括:
 - 歌曲信息获取
 - 音乐搜索
 - 歌单和专辑详情
@@ -13,21 +13,20 @@ import os
 import sys
 import time
 import traceback
+import ipaddress
+import requests
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 from urllib.parse import quote, urlparse
 from flask import Flask, jsonify, request, send_file, render_template, Response
 from config import Config
-
-from urllib.parse import quote
-import time
 from navidrome import NavidromeClient
 from logger import setup_logger
+from stats import StatsTracker
+from notifier import start_daily_notifier
 
 from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-import ipaddress
 
 try:
     from music_api import (
@@ -41,6 +40,10 @@ except ImportError as e:
     print(f"导入模块失败: {e}")
     print("请确保所有依赖模块存在且可用")
     sys.exit(1)
+
+
+# 支持的音质等级（取自 QualityLevel 枚举，避免在各路由重复硬编码同一份列表）
+VALID_QUALITIES = [q.value for q in QualityLevel]
 
 
 @dataclass
@@ -94,28 +97,23 @@ class MusicAPIService:
         self.qr_manager=QRLoginManager()
         
         self.use_navidrome=user_config.is_enabled('NAVIDROME')
+        # Navidrome 客户端无状态，启用时构建一次复用即可，避免每个请求/每首歌重复创建
+        self.navidrome: Optional[NavidromeClient] = None
+        if self.use_navidrome:
+            self.navidrome = NavidromeClient(
+                user_config.get_nested("NAVIDROME.NAVIDROME_HOST"),
+                user_config.get_nested("NAVIDROME.NAVIDROME_USER"),
+                user_config.get_nested("NAVIDROME.NAVIDROME_PASS"),
+            )
         self.quality_level = self._user_config.get("QUALITY_LEVEL", "lossless")
-
-        # 判断是否为Docker环境（通过环境变量或文件路径）
-        self.is_docker_env = self._detect_docker_env()
-
-        # 设置下载目录
-        if self.is_docker_env:
-            self.downloads_path = Path("/app/downloads")
-        else:
-            # 测试环境：项目工程根目录下的downloads（自动识别项目根目录）
-            # 获取当前文件所在目录的父目录作为项目根目录
-            project_root = Path(__file__).parent.parent  # 当前文件在项目根目录下的某个子目录
-            self.downloads_path = project_root / "downloads"
-        
-        # 创建下载目录（如果不存在）
-        self.downloads_path.mkdir(exist_ok=True, parents=True)  # parents=True确保父目录也会创建
+        # 创建下载目录
+        self.downloads_path = Path("/app/downloads")
+        self.downloads_path.mkdir(exist_ok=True)
         
         self.logger = logging.getLogger(__name__)
-        self.logger.info(f"当前环境: {'Docker环境' if self.is_docker_env else '测试环境'}")
-        self.logger.info(f"下载目录已设置为: {self.downloads_path.resolve()}")
+        self.logger.info(f"下载目录已设置为: /app/downloads")
         self.logger.info(f"下载音乐品质已设置为: { {"standard": "标准", "exhigh": "极高", "lossless": "无损", "hires": "Hi-Res", "sky": "沉浸环绕声", "jyeffect": "高清环绕声", "jymaster": "超清母带"}.get (self.quality_level, "未知品质")}")
-        self.downloader = MusicDownloader(self.cookie_manager.parse_cookie_string(self.cookie_manager.cookie_string), str(self.downloads_path))
+        self.downloader = MusicDownloader(self.cookie_manager.parse_cookie_string(self.cookie_manager.cookie_string), "/app/downloads")
     @property
     def user_config(self) -> Config:
         return self._user_config
@@ -132,34 +130,11 @@ class MusicAPIService:
             self.logger.error(f"Cookie处理异常: {e}")
             return {}
     
-    def _detect_docker_env(self) -> bool:
-        """
-        检测是否为Docker环境，支持三种判断方式（按需选择或组合）
-        """
-        # 方式1：检查是否存在Docker相关环境变量（推荐，可手动设置）
-        if os.getenv("DOCKER_ENV", "false").lower() in ("true", "1"):
-            return True
-        
-        # 方式2：检查/proc/1/cgroup文件（Docker容器中通常包含docker字符串）
-        try:
-            with open("/proc/1/cgroup", "r") as f:
-                if "docker" in f.read():
-                    return True
-        except (FileNotFoundError, PermissionError):
-            pass
-        
-        # 方式3：检查是否存在/app目录（Docker镜像中常用的工作目录）
-        if Path("/app").exists() and Path("/app").is_dir():
-            return True
-        
-        return False
-
     def _extract_music_id(self, id_or_url: str) -> str:
         """提取音乐ID"""
         try:
             # 处理短链接
             if '163cn.tv' in id_or_url:
-                import requests
                 response = requests.get(id_or_url, allow_redirects=False, timeout=10)
                 id_or_url = response.headers.get('Location', id_or_url)
             
@@ -238,6 +213,18 @@ class MusicAPIService:
             "is_mp3": False
         }
 
+    def navidrome_status(self, name: str, artists: str, album: str) -> dict:
+        """查询单曲在 Navidrome 库内的存在性，统一收敛各路由的重复逻辑。
+
+        未启用 Navidrome 或查询异常时，返回与正常结果同构的空字典，保证响应格式一致。
+        """
+        if self.use_navidrome and self.navidrome:
+            try:
+                return self.navidrome.navidrome_song_exists(name, artists, album)
+            except Exception as e:
+                self.logger.error(f"Navidrome 检查失败: {e}")
+        return self.get_empty_result()
+
 
 
 
@@ -246,32 +233,79 @@ class MusicAPIService:
     
 # 创建Flask应用和服务实例
 user_config=Config()
-
-# 明确指定static和template文件夹路径，确保Docker环境中能正确加载CSS/JS
-# 获取当前文件所在目录（/app/src）
+# 显式指定 static/templates 绝对路径，避免 Docker 中工作目录差异导致 CSS/JS 加载失败
 current_dir = Path(__file__).parent
-app = Flask(__name__, 
+app = Flask(__name__,
             static_folder=str(current_dir / 'static'),
             template_folder=str(current_dir / 'templates'))
-
 api_service = MusicAPIService(user_config)
+APP_VERSION = os.getenv("APP_VERSION", "unknown")
 
-# 从环境变量获取运行模式（默认调试模式）
-RUN_MODE = os.getenv("RUN_MODE", "debug")  # 调试时为"debug"，生产为"production"
+
+def _parse_allowed_origins(raw: str) -> frozenset:
+    """把配置里的来源列表解析成纯域名(去协议、保留端口)集合。"""
+    domains = set()
+    for origin in (raw or '').split(','):
+        origin = origin.strip()
+        if not origin:
+            continue
+        parsed = urlparse(origin)
+        domains.add(parsed.netloc if parsed.netloc else origin)
+    return frozenset(domains)
+
+
+# 来源白名单启动时解析一次，避免每个请求都重复 split + urlparse（before_request 是热路径）
+ALLOWED_ORIGINS = _parse_allowed_origins(user_config.allowed_origins)
+
+# 使用统计：当期去重访问 IP + 下载歌曲数，每日 20:00 由 Bark 推送
+stats_tracker = StatsTracker(user_config.stats_file)
+# 这些路径不计入“使用人数”（探活/静态资源/纯信息接口）
+STATS_IGNORE_PATHS = {"/health", "/favicon.ico", "/api/info", "/api/stats"}
+
+
+def _client_ip() -> str:
+    """获取真实客户端 IP：优先 X-Forwarded-For 首跳（站点走了反代），否则 remote_addr。"""
+    xff = request.headers.get('X-Forwarded-For', '')
+    if xff:
+        return xff.split(',')[0].strip()
+    return request.remote_addr or ''
 
 # 初始化频率限制器（关键补充）
 limiter = Limiter(
-    get_remote_address,  # 基于客户端IP限制
+    # 基于“真实客户端 IP”限流。站点在反向代理后面，request.remote_addr 是代理的 IP，
+    # 若用它做 key，会把所有访客算到同一个 IP 上、共用同一个限流桶——只要全站累计请求
+    # 超过 200/hour 或某路由的分钟限额，所有人（无论解析单曲还是歌单）都会被 429。
+    # 这里复用与统计一致的 _client_ip（取 X-Forwarded-For 首跳），让每个访客各自独立计数。
+    _client_ip,
     app=app,
     default_limits=[user_config.rate_limit],  # 使用配置中的频率限制（如"200/hour"）
-    storage_uri="memory://",  # 简单内存存储（生产环境建议用redis）
-    strategy="fixed-window"  # 固定窗口计数策略
+    storage_uri=user_config.rate_limit_storage,  # 可配置：默认 memory://，生产可设 redis://host:6379
+    strategy="fixed-window",  # 固定窗口计数策略
+    # 容错：当后端存储（如 redis）不可达时，自动退回进程内存限流，
+    # 避免 redis 宕机/配错导致所有受保护接口直接 500
+    in_memory_fallback_enabled=True
 )
 
 
 @app.before_request
 def before_request():
     """请求前处理：包含日志记录和安全检查"""
+    # 1. 定义不需要身份验证的路径列表
+    #allowed_paths = [
+    #    '/static',
+    #    '/Playlist',  # <--- 添加这一行
+    #    '/song',     # <--- 可能还有登录页等
+    #    '/search',   # <--- 可能还有注册页等
+    #    '/album',   # <--- 可能还有注册页等
+    #    '/download',   # <--- 可能还有注册页等\
+    #    '/song/detail',  # <--- 可能还有注册页等
+    #    '/api/check-cookie'
+    #]
+    
+    # 2. 检查当前请求路径是否在白名单内
+    #for path in allowed_paths:
+    #    if request.path.startswith(path):
+    #        return None  # 直接放行，不执行后续验证逻辑
     # 1. 记录请求信息（原有逻辑）
     api_service.logger.info(
         f"{request.method} {request.path} - IP: {request.remote_addr} - "
@@ -293,19 +327,7 @@ def before_request():
     if any(request.path == ep for ep in user_config.public_endpoints):
         return None
 
-    # 3. 验证请求来源（核心优化部分）
-    # 3.1 解析允许的来源（去除协议，只保留域名+端口）
-    allowed_origins = []
-    for origin in user_config.allowed_origins.split(','):
-        origin_stripped = origin.strip()
-        if not origin_stripped:
-            continue
-        # 解析域名（去除http:///https://）
-        parsed = urlparse(origin_stripped)
-        # 若有netloc（如https://jfjt.cc → netloc是jfjt.cc），则用netloc；否则直接用origin（如localhost:5151）
-        allowed_domain = parsed.netloc if parsed.netloc else origin_stripped
-        allowed_origins.append(allowed_domain)
-
+    # 3. 验证请求来源（白名单已在启动时解析为 ALLOWED_ORIGINS，此处直接复用）
     # 3.2 获取请求的Referer和Origin（同样去除协议）
     referer = request.headers.get('Referer', '')
     origin = request.headers.get('Origin', '')
@@ -322,10 +344,20 @@ def before_request():
         parsed_origin = urlparse(origin)
         origin_domain = parsed_origin.netloc if parsed_origin.netloc else origin
 
-    # 3.3 严格匹配：Referer或Origin的域名必须完全等于允许的域名（不匹配子域名）
+    # 3.3 同源放行：网页调用自己后端时（Referer/Origin 的 host 等于请求自身 Host）始终放行。
+    # 来源校验的目的只是拦截第三方盗链，自部署用户用任意域名/IP 访问都应正常使用，
+    # 不再依赖 ALLOWED_ORIGINS 是否预先配置了该域名。
+    self_hosts = {request.host}
+    forwarded_host = request.headers.get('X-Forwarded-Host', '')
+    if forwarded_host:
+        self_hosts.update(h.strip() for h in forwarded_host.split(',') if h.strip())
+
+    # 3.4 严格匹配：Referer或Origin的域名完全等于允许的域名（不匹配子域名），或为同源请求
     is_from_allowed_origin = (
-        referer_domain in allowed_origins  # Referer域名完全匹配
-        or origin_domain in allowed_origins  # Origin域名完全匹配
+        referer_domain in ALLOWED_ORIGINS  # Referer域名完全匹配
+        or origin_domain in ALLOWED_ORIGINS  # Origin域名完全匹配
+        or (referer_domain and referer_domain in self_hosts)  # 同源 Referer
+        or (origin_domain and origin_domain in self_hosts)    # 同源 Origin
     )
 
     # 4. 来源合法则放行，否则验证API密钥
@@ -350,6 +382,17 @@ def after_request(response: Response) -> Response:
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-API-Key')
     response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
     response.headers.add('Access-Control-Max-Age', '3600')
+
+    # 统计“使用人数”：仅记录成功(<400)且非探活/静态的请求来源 IP（去重）
+    try:
+        path = request.path
+        if (response.status_code < 400
+                and path not in STATS_IGNORE_PATHS
+                and not path.startswith('/static')):
+            stats_tracker.record_visit(_client_ip())
+    except Exception as e:
+        api_service.logger.debug(f"记录访问统计失败(忽略): {e}")
+
     return response
 
 @app.errorhandler(400)
@@ -372,7 +415,8 @@ def handle_internal_error(e):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    # 将版本号传递到模板
+    return render_template("index.html", app_version=APP_VERSION)
 
 @app.route('/api/check-password', methods=['GET'])
 @limiter.limit("30/minute")  # 每分钟最多30次请求
@@ -440,9 +484,8 @@ def get_song_info():
         music_id = api_service._extract_music_id(song_ids or url)
         
         # 验证音质参数
-        valid_levels = ['standard', 'exhigh', 'lossless', 'hires', 'sky', 'jyeffect', 'jymaster']
-        if level not in valid_levels:
-            return APIResponse.error(f"无效的音质参数，支持: {', '.join(valid_levels)}")
+        if level not in VALID_QUALITIES:
+            return APIResponse.error(f"无效的音质参数，支持: {', '.join(VALID_QUALITIES)}")
         
         # 验证类型参数
         valid_types = ['url', 'name', 'lyric', 'json']
@@ -468,26 +511,16 @@ def get_song_info():
                     'bitrate': song_data.get('br')
                 }
                 # 标注 Navidrome 状态（尝试通过歌曲详情获取名称/艺人/专辑）
-                try:
-                    song_detail = name_v1(music_id)
-                    if song_detail and 'songs' in song_detail and song_detail['songs']:
-                        sd = song_detail['songs'][0]
-                        artists_str = '/'.join(a['name'] for a in sd.get('ar', []))
-                        album_name = sd.get('al', {}).get('name', '')
-                        if api_service.use_navidrome:
-                            navidrome=NavidromeClient(user_config.get_nested("NAVIDROME.NAVIDROME_HOS"),user_config.get("NAVIDROME.NAVIDROME_USER"),user_config.get("NAVIDROME.NAVIDROME_PASS"))
-                            # 直接接收完整的匹配结果字典（而非仅布尔值）
-                            response_data['in_navidrome'] = navidrome.navidrome_song_exists(
-                                sd.get('name', ''), 
-                                artists_str, 
-                                album_name
-                            )
-                    else:
-                        # 返回空结果字典（保持格式一致）
-                        response_data['in_navidrome'] = api_service.get_empty_result()
-                except Exception as e:
-                    api_service.logger.error(f"Navidrome 检查失败: {e}")
-                    response_data['in_navidrome'] = api_service.get_empty_result()  # 异常时返回空字典
+                song_detail = name_v1(music_id)
+                if song_detail and song_detail.get('songs'):
+                    sd = song_detail['songs'][0]
+                    artists_str = '/'.join(a['name'] for a in sd.get('ar', []))
+                    album_name = sd.get('al', {}).get('name', '')
+                    response_data['in_navidrome'] = api_service.navidrome_status(
+                        sd.get('name', ''), artists_str, album_name
+                    )
+                else:
+                    response_data['in_navidrome'] = api_service.get_empty_result()
                 return APIResponse.success(response_data, "获取歌曲URL成功")
             else:
                 return APIResponse.error("获取音乐URL失败，可能是版权限制或音质不支持", 404)
@@ -524,45 +557,25 @@ def get_song_info():
                 'tlyric': lyric_info.get('tlyric', {}).get('lyric', '') if lyric_info else ''
             }
 
-            # 标注 Navidrome 状态（尝试通过歌曲详情获取名称/艺人/专辑）
-            try:
-                song_detail = name_v1(music_id)
-                if song_detail and 'songs' in song_detail and song_detail['songs']:
-                    sd = song_detail['songs'][0]
-                    artists_str = '/'.join(a['name'] for a in sd.get('ar', []))
-                    album_name = sd.get('al', {}).get('name', '')
-                    if api_service.use_navidrome:
-                            navidrome=NavidromeClient(user_config.get_nested("NAVIDROME.NAVIDROME_HOS"),user_config.get("NAVIDROME.NAVIDROME_USER"),user_config.get("NAVIDROME.NAVIDROME_PASS"))
-                            # 直接接收完整的匹配结果字典（而非仅布尔值）
-                            response_data['in_navidrome'] = navidrome.navidrome_song_exists(
-                                sd.get('name', ''), 
-                                artists_str, 
-                                album_name
-                            )
-                    else:
-                        # 返回空结果字典（保持格式一致）
-                        response_data['in_navidrome'] = api_service.get_empty_result()
-                else:
-                    # 返回空结果字典（保持格式一致）
-                    response_data['in_navidrome'] = api_service.get_empty_result()
+            # 标注 Navidrome 状态（复用上方已获取的 song_data，避免重复请求 name_v1）
+            artists_str = '/'.join(a['name'] for a in song_data.get('ar', []))
+            response_data['in_navidrome'] = api_service.navidrome_status(
+                song_data.get('name', ''), artists_str, song_data.get('al', {}).get('name', '')
+            )
 
-                # 添加URL和大小信息
-                if url_info and url_info.get('data') and len(url_info['data']) > 0:
-                    url_data = url_info['data'][0]
-                    response_data.update({
-                        'url': url_data.get('url', ''),
-                        'size': api_service._format_file_size(url_data.get('size', 0)),
-                        'level': url_data.get('level', level)
-                    })
-                else:
-                    response_data.update({
-                        'url': '',
-                        'size': '获取失败'
-                    })
-                
-            except Exception as e:
-                api_service.logger.error(f"Navidrome 检查失败: {e}")
-                response_data['in_navidrome'] = api_service.get_empty_result()  # 异常时返回空字典
+            # 添加URL和大小信息
+            if url_info and url_info.get('data') and len(url_info['data']) > 0:
+                url_data = url_info['data'][0]
+                response_data.update({
+                    'url': url_data.get('url', ''),
+                    'size': api_service._format_file_size(url_data.get('size', 0)),
+                    'level': url_data.get('level', level)
+                })
+            else:
+                response_data.update({
+                    'url': '',
+                    'size': '获取失败'
+                })
             return APIResponse.success(response_data, "获取歌曲URL成功")
             
     except APIException as e:
@@ -605,9 +618,8 @@ def song_detail_api():
             return validation_error
         
         # 验证音质参数
-        valid_qualities = ['standard', 'exhigh', 'lossless', 'hires', 'sky', 'jyeffect', 'jymaster']
-        if quality not in valid_qualities:
-            return APIResponse.error(f"无效的音质参数，支持: {', '.join(valid_qualities)}")
+        if quality not in VALID_QUALITIES:
+            return APIResponse.error(f"无效的音质参数，支持: {', '.join(VALID_QUALITIES)}")
         
         # 验证返回格式
         if return_format not in ['file', 'json']:
@@ -710,39 +722,17 @@ def search_music_api():
         
         # search_music返回的是歌曲列表，需要包装成前端期望的格式
         if result:
-            if api_service.use_navidrome:
-                navidrome=NavidromeClient(api_service.user_config.get("NAVIDROME_HOST"),api_service.user_config.get("NAVIDROME_USER"),api_service.user_config.get("NAVIDROME_PASS"))
-                for song in result:
-                    # 修复：统一艺术家字段格式（确保为字符串）
-                    if 'artists' in song and isinstance(song['artists'], list):
-                        # 若艺术家是列表（如 [{name: "歌手1"}, ...]），转换为字符串
-                        song['artist_string'] = '/'.join(artist.get('name', '') for artist in song['artists'])
-                    else:
-                        song['artist_string'] = song.get('artists', '')  # 直接使用字符串
-                    
-                    # 新增：检查 Navidrome 库内存在性，存储完整结果
-                    try:
-                        # 直接接收完整的匹配结果字典（而非仅布尔值）
-                        song['in_navidrome']  = navidrome.navidrome_song_exists(
-                            song.get('name', ''),
-                            song['artist_string'],  # 使用处理后的艺术家字符串
-                            song.get('album', '')
-                        )
-                    except Exception as e:
-                        api_service.logger.error(f"搜索结果 Navidrome 检查失败: {e}")
-                        song['in_navidrome'] = api_service.get_empty_result()  # 异常时返回空字典
-            else:
-                for song in result:
-                    # 修复：统一艺术家字段格式（确保为字符串）
-                    if 'artists' in song and isinstance(song['artists'], list):
-                        # 若艺术家是列表（如 [{name: "歌手1"}, ...]），转换为字符串
-                        song['artist_string'] = '/'.join(artist.get('name', '') for artist in song['artists'])
-                    else:
-                        song['artist_string'] = song.get('artists', '')  # 直接使用字符串
+            for song in result:
+                # 统一艺术家字段格式（确保为字符串）
+                if 'artists' in song and isinstance(song['artists'], list):
+                    song['artist_string'] = '/'.join(artist.get('name', '') for artist in song['artists'])
+                else:
+                    song['artist_string'] = song.get('artists', '')  # 直接使用字符串
+                # 标注 Navidrome 库内存在性（未启用/异常时返回空结果字典）
+                song['in_navidrome'] = api_service.navidrome_status(
+                    song.get('name', ''), song['artist_string'], song.get('album', '')
+                )
 
-                    # 未启用 Navidrome，返回空结果字典
-                    song['in_navidrome'] = api_service.get_empty_result()
-            
         return APIResponse.success(result, "搜索完成")
         
     except ValueError as e:
@@ -771,27 +761,13 @@ def get_playlist():
         #result2 = user_playlist(4912185576, cookies)
         result = playlist_detail(playlist_id, cookies)
 
-        # 新增：为歌单中的每首歌标注是否在 Navidrome 库内
-        try:
-            if api_service.use_navidrome:
-                navidrome=NavidromeClient(user_config.get_nested("NAVIDROME.NAVIDROME_HOS"),user_config.get("NAVIDROME.NAVIDROME_USER"),user_config.get("NAVIDROME.NAVIDROME_PASS"))
-                for track in result.get('tracks', []):
-                    # 处理艺术家字段（确保为字符串）
-                    artists_str = '/'.join(artist.get('name', '') for artist in track.get('ar', []))
-                    # 直接接收完整的匹配结果字典（而非仅布尔值）
-                    track['in_navidrome']  = navidrome.navidrome_song_exists(
-                        track.get('name', ''),
-                        artists_str,
-                        track.get('al', {}).get('name', '')  # 从专辑信息中提取专辑名
-                    )
-            else:
-                for track in result.get('tracks', []):
-                    # 处理艺术家字段（确保为字符串）
-                    artists_str = '/'.join(artist.get('name', '') for artist in track.get('ar', []))
-                    track['in_navidrome']  = api_service.get_empty_result()
-        except Exception:
-            api_service.logger.error(f"歌单 Navidrome 检查失败: {e}")
-        
+        # 为歌单中的每首歌标注是否在 Navidrome 库内
+        for track in result.get('tracks', []):
+            artists_str = '/'.join(artist.get('name', '') for artist in track.get('ar', []))
+            track['in_navidrome'] = api_service.navidrome_status(
+                track.get('name', ''), artists_str, track.get('al', {}).get('name', '')
+            )
+
         # 适配前端期望的响应格式
         response_data = {
             'status': 'success',
@@ -823,28 +799,13 @@ def get_album():
         cookies = api_service._get_cookies()
         result = album_detail(album_id, cookies)
         
-        # 新增：为专辑中的每首歌标注是否在 Navidrome 库内
-        try:
-            album_name = result.get('name', '')  # 专辑整体名称
-            if api_service.use_navidrome:
-                navidrome=NavidromeClient(user_config.get_nested("NAVIDROME.NAVIDROME_HOS"),user_config.get("NAVIDROME.NAVIDROME_USER"),user_config.get("NAVIDROME.NAVIDROME_PASS"))
-                for song in result.get('songs', []):
-                    # 处理艺术家字段
-                    artists_str = '/'.join(artist.get('name', '') for artist in song.get('ar', []))
-                    
-                    # 直接接收完整的匹配结果字典（而非仅布尔值）
-                    song['in_navidrome']  = navidrome.navidrome_song_exists(
-                        song.get('name', ''),
-                        artists_str,
-                        album_name  # 使用专辑整体名称作为匹配条件
-                    )
-            else:
-                for song in result.get('songs', []):
-                    # 处理艺术家字段
-                    artists_str = '/'.join(artist.get('name', '') for artist in song.get('ar', []))
-                    song['in_navidrome']  = api_service.get_empty_result()
-        except Exception:
-            api_service.logger.error(f"专辑 Navidrome 检查失败: {e}")
+        # 为专辑中的每首歌标注是否在 Navidrome 库内（统一用专辑整体名称作为匹配条件）
+        album_name = result.get('name', '')
+        for song in result.get('songs', []):
+            artists_str = '/'.join(artist.get('name', '') for artist in song.get('ar', []))
+            song['in_navidrome'] = api_service.navidrome_status(
+                song.get('name', ''), artists_str, album_name
+            )
 
         # 适配前端期望的响应格式
         response_data = {
@@ -877,9 +838,8 @@ def download_music_api():
             return validation_error
         
         # 验证音质参数
-        valid_qualities = ['standard', 'exhigh', 'lossless', 'hires', 'sky', 'jyeffect', 'jymaster']
-        if quality not in valid_qualities:
-            return APIResponse.error(f"无效的音质参数，支持: {', '.join(valid_qualities)}")
+        if quality not in VALID_QUALITIES:
+            return APIResponse.error(f"无效的音质参数，支持: {', '.join(VALID_QUALITIES)}")
         
         # 验证返回格式
         if return_format not in ['file', 'json']:
@@ -916,7 +876,7 @@ def download_music_api():
         music_info = {
             'id': music_id,
             'name': song_data['name'],
-            'artist_string': '&'.join(artist['name'] for artist in song_data['ar']),
+            'artist_string': ', '.join(artist['name'] for artist in song_data['ar']),
             'album': song_data['al']['name'],
             'pic_url': song_data['al']['picUrl'],
             'file_type': url_data['type'],
@@ -941,14 +901,14 @@ def download_music_api():
         # 检查所有可能的文件
         filename = f"{safe_filename}{file_ext}"
         
+        # 【核心修改】删除本地文件检查逻辑，改为内存下载
         try:
+            # 调用内存下载方法（含标签写入）
             m_info=api_service.downloader.convert_to_music_info(music_info)
-            download_result = api_service.downloader.download_song(m_info, quality,return_format)
-            if not download_result.success:
-                return APIResponse.error("下载失败: 传输异常", 500)
-            
-            file_path = Path(download_result.file_path)
-            api_service.logger.info(f"下载完成: {filename}")
+            success, audio_data, _ = api_service.downloader.download_music_to_memory(m_info, quality)
+            if not success:
+                return APIResponse.error("下载失败: 内存传输异常", 500)
+            stats_tracker.record_download()  # 下载成功，下载歌曲数 +1
         except DownloadException as e:
             api_service.logger.error(f"下载异常: {e}")
             return APIResponse.error(f"下载失败: {str(e)}", 500)
@@ -972,19 +932,22 @@ def download_music_api():
             }
             return APIResponse.success(response_data, "下载完成")
         else:
-            # 返回文件下载
-            if not file_path.exists():
-                return APIResponse.error("文件不存在", 404)
-            
+             # 【核心修改】从内存数据流发送文件，而非本地路径
             try:
+                # 确保数据流指针在开头
+                audio_data.seek(0)
+                
                 response = send_file(
-                    str(file_path),
-                    as_attachment=True,
+                    audio_data,  # 内存中的数据流
+                    as_attachment=True,  # 强制浏览器下载
                     download_name=filename,
                     mimetype=f"audio/{music_info['file_type']}"
                 )
+                # 保持原有自定义头信息
                 response.headers['X-Download-Message'] = 'Download completed successfully'
                 response.headers['X-Download-Filename'] = quote(filename, safe='')
+                # 增强中文文件名兼容性
+                response.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename)}"
                 return response
             except Exception as e:
                 api_service.logger.error(f"发送文件失败: {e}")
@@ -1104,6 +1067,17 @@ def api_info():
         return APIResponse.error(f"获取API信息失败: {str(e)}", 500)
 
 
+@app.route('/api/stats', methods=['GET'])
+@limiter.limit("30/minute")
+def api_stats():
+    """查看当期使用统计（去重访问IP数 + 下载歌曲数 + 累计下载）。"""
+    try:
+        return APIResponse.success(stats_tracker.snapshot(), "统计获取成功")
+    except Exception as e:
+        api_service.logger.error(f"获取统计异常: {e}")
+        return APIResponse.error(f"获取统计失败: {str(e)}", 500)
+
+
 def start_api_server():
     """启动API服务器"""
     try:
@@ -1124,9 +1098,6 @@ def start_api_server():
         print("\n🎵 支持的音质:")
         print(f"  standard, exhigh, lossless, hires, sky, jyeffect, jymaster")
         print("="*60)
-        print(f"📁 静态文件路径: {app.static_folder}")
-        print(f"📄 模板文件路径: {app.template_folder}")
-        print("="*60)
         print(f"⏰ 启动时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print("🌟 服务已就绪，等待请求...\n")
         # 初始化日志
@@ -1134,6 +1105,20 @@ def start_api_server():
         # 用 getattr 替代 logging.getLevelName，获取日志级别常量
         log_level = getattr(logging, level, logging.INFO)  # 若级别无效，默认使用 INFO
         setup_logger(log_level)
+
+        # 启动每日 Bark 统计推送（仅在配置开启时）
+        # 注意：debug=True 时 Werkzeug reloader 会以父/子两个进程运行本函数，
+        # 后台线程必须只在真正的服务进程启动一次，否则会重复启动导致每日推送两条。
+        is_serving_process = (not user_config.debug) or os.environ.get('WERKZEUG_RUN_MAIN') == 'true'
+        if user_config.use_bark and is_serving_process:
+            try:
+                hh, mm = (user_config.bark_time.split(':') + ['0'])[:2]
+                start_daily_notifier(stats_tracker, lambda: user_config.bark_url, int(hh), int(mm))
+            except Exception as e:
+                logging.error(f"启动 Bark 每日推送失败: {e}")
+        elif not user_config.use_bark and is_serving_process:
+            logging.info("未启用 Bark 推送（BARK.USE_BARK=false），仅在 /api/stats 提供统计查询")
+
         # 启动Flask应用
         app.run(
             host=user_config.web_host,

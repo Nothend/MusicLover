@@ -1,5 +1,8 @@
+// 调整原Flask模板路径为相对路径（关键修改）
+
+
 // 所有DOM操作代码包裹在DOMContentLoaded事件中
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
     // 全局变量
     let playlistData = null;
     let currentPage = 1;
@@ -9,6 +12,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const activeXhrs = new Map(); // 存储活跃请求的Map
     
     // 侧边栏控制
+    // 获取浮动按钮和侧边栏元素
+    const floatingActionBtn = document.getElementById('floatingActionBtn');
     const settingsSidebar = document.getElementById('settings-sidebar');
     const openSettingsBtn = document.getElementById('openSettings');
     const closeSettingsBtn = document.getElementById('closeSettings');
@@ -32,12 +37,18 @@ document.addEventListener('DOMContentLoaded', function() {
     
     openSettingsBtn.addEventListener('click', openSidebar);
     closeSettingsBtn.addEventListener('click', closeSidebar);
+    // 为浮动按钮添加点击事件
+    if (floatingActionBtn) {
+        floatingActionBtn.addEventListener('click', openSidebar);
+    }
     
     document.addEventListener('click', (e) => {
         const isClickInside = settingsSidebar.contains(e.target);
         const isOpenButton = openSettingsBtn.contains(e.target);
-        
-        if (!isClickInside && !isOpenButton && settingsSidebar.style.width !== '0px') {
+        const isFloatingButton = floatingActionBtn && floatingActionBtn.contains(e.target); // 增加对浮动按钮的判断
+
+        // 如果点击的不是侧边栏内部，也不是任何一个打开按钮，并且侧边栏是打开的，才执行关闭
+        if (!isClickInside && !isOpenButton && !isFloatingButton && settingsSidebar.style.width !== '0px') {
             closeSidebar();
         }
     });
@@ -451,177 +462,226 @@ document.addEventListener('DOMContentLoaded', function() {
         return qualityMap[level] || level;
     }
 
-    async function batchDownload() {
-        // 获取当前页所有未下载的歌曲项
-        const songItems = document.querySelectorAll('.song-item:not(.downloaded)');
-        if (songItems.length === 0) {
-            showToast('当前页没有可下载的歌曲', 'info');
-            return;
-        }
-
-        // 过滤出有效歌曲（含ID）并收集信息
-        const downloadTasks = [];
-        songItems.forEach(item => {
-            const songId = item.getAttribute('data-id');
-            const songName = item.querySelector('strong').textContent.trim();
-            if (songId) {
-                downloadTasks.push({
-                    songId,
-                    songName,
-                    songItemEl: item
-                });
-            }
-        });
-
-        if (downloadTasks.length === 0) {
-            showToast('未找到有效歌曲ID', 'warning');
-            return;
-        }
-
-        // 配置并发数（浏览器同一域名默认并发6个左右，设5个平衡性能与稳定性）
-        const MAX_CONCURRENT = 5;
-        const batchBtn = document.getElementById('batchDownloadBtn');
-        const originalText = batchBtn.innerHTML;
+    /**
+     * 判断当前浏览器是否为 Safari
+     * @returns {boolean}
+     */
+    function isSafariBrowser() {
+        // Safari 的 User-Agent 会包含 "Safari"，但 Chrome 也可能包含，所以要排除 Chrome
+        const userAgent = navigator.userAgent;
+        return /Safari/.test(userAgent) && !/Chrome/.test(userAgent);
+    }
+    /**
+     * 客户端快速下载实现 (浏览器兼容版)
+     */
+    async function clientFastDownload() {
+        if (isBatchDownloading || !playlistData) return;
         
-        // 禁用按钮并显示下载状态
+        const pl = playlistData.data.playlist;
+        const allSongs = pl.songs || pl.tracks || [];
+        const startIndex = (currentPage - 1) * pageSize;
+        const endIndex = Math.min(startIndex + pageSize, allSongs.length);
+        const currentSongs = allSongs.slice(startIndex, endIndex);
+        
+        if (currentSongs.length === 0) {
+            showToast('当前页没有可下载的歌曲', 'warning');
+            return;
+        }
+
+        if (isSafariBrowser()) {
+            // 如果是 Safari 浏览器，直接提示不支持，并终止函数执行
+            showToast('抱歉，Safari 浏览器暂不支持批量下载功能，请使用 Chrome 或 Firefox 浏览器尝试。', 'error');
+            return; 
+        }
+        
+        isBatchDownloading = true;
+        const batchBtn = document.getElementById('batchDownloadBtn');
         batchBtn.disabled = true;
-        batchBtn.innerHTML = '<span class="loading"></span> 批量下载中...';
-
-        let successCount = 0;
-        let failedCount = 0;
-        const quality = document.getElementById('quality-select').value;
-
+        batchBtn.innerHTML = '<span class="loading"></span> 下载中...';
+        
         try {
-            // 并发控制：Promise池实现并行下载
-            const promisePool = async () => {
-                const results = [];
-                // 分批次处理任务，控制并发量
-                for (let i = 0; i < downloadTasks.length; i += MAX_CONCURRENT) {
-                    const currentBatch = downloadTasks.slice(i, i + MAX_CONCURRENT);
-                    // 并行执行当前批次的下载任务
-                    const batchResults = await Promise.allSettled(
-                        currentBatch.map(task => 
-                            downloadSingleSong(task.songId, quality, task.songName, task.songItemEl)
-                        )
-                    );
-                    results.push(...batchResults);
+            const quality = document.getElementById('quality-select').value;
+            const total = currentSongs.length;
+
+            // --- 非 Safari 浏览器 (Chrome, Firefox 等) 使用原有逻辑 ---
+            // !!! 此处代码保持不变 !!!
+            console.log('检测到非 Safari 浏览器，使用并发下载策略...');
+            
+            const MAX_CONCURRENT = 3;
+            let completedCount = 0;
+            let successCount = 0;
+            
+            const downloadQueue = [...currentSongs];
+            
+            const startNextTask = async () => {
+                if (downloadQueue.length === 0) return;
+                
+                const song = downloadQueue.shift();
+                const songId = song.id || song.songId || '';
+                const songName = song.name || song.songName || '未知歌曲';
+                const songItemEl = document.querySelector(`.song-item[data-id="${songId}"]`);
+                
+                if (!songItemEl) {
+                    completedCount++;
+                    return startNextTask();
                 }
-                return results;
+                
+                const success = await clientDownloadSingleSong(songId, quality, songName, songItemEl);
+                
+                completedCount++;
+                if (success) successCount++;
+                
+                startNextTask();
             };
-
-            // 执行所有下载任务
-            const downloadResults = await promisePool();
-
-            // 统计下载结果
-            downloadResults.forEach(result => {
-                if (result.status === 'fulfilled' && result.value) {
-                    successCount++;
-                    // 标记为已下载，避免重复下载
-                    const taskIndex = downloadResults.indexOf(result);
-                    if (taskIndex >= 0 && downloadTasks[taskIndex]) {
-                        downloadTasks[taskIndex].songItemEl.classList.add('downloaded');
+            
+            for (let i = 0; i < MAX_CONCURRENT; i++) {
+                startNextTask();
+            }
+            
+            await new Promise(resolve => {
+                const checkComplete = setInterval(() => {
+                    if (completedCount >= total) {
+                        clearInterval(checkComplete);
+                        resolve();
                     }
-                } else {
-                    failedCount++;
-                }
+                }, 500);
             });
-
-            // 显示批量下载结果提示
-            showToast(
-                `批量下载完成！成功：${successCount}首，失败：${failedCount}首`,
-                failedCount === 0 ? 'success' : 'warning'
-            );
+            showToast(`批量下载完成！成功: ${successCount}/${total}`, 'success');
+            
         } catch (error) {
-            console.error('批量下载异常:', error);
+            console.error('批量下载出错：', error);
             showToast('批量下载过程中发生错误', 'error');
         } finally {
-            // 恢复按钮原始状态
+            isBatchDownloading = false;
             batchBtn.disabled = false;
-            batchBtn.innerHTML = originalText;
+            batchBtn.innerHTML = '批量下载本页';
         }
     };
 
     /**
-     * 单首歌曲下载函数
+     * 客户端单首歌曲下载 (双模式兼容版)
+     * @param {string} songId - 歌曲ID
+     * @param {string} quality - 音质
+     * @param {string} songName - 歌曲名
+     * @param {HTMLElement} songItemEl - 歌曲DOM元素
+     * @param {HTMLElement} [downloadContainer] - (可选) Safari模式下用于存放<a>标签的容器
+     * @param {Function} [onDownloadComplete] - (可选) Safari模式下，下载确认/取消后的回调
+     * @returns {Promise<boolean|Function|null>} 
      */
-    function downloadSingleSong(songId, quality, songName, songItemEl) {
-        return new Promise((resolve) => {
-            const progressContainer = songItemEl.querySelector('.song-progress');
-            progressContainer.style.display = 'block';
-            const progressBar = progressContainer.querySelector('.progress-bar');
-            progressBar.style.width = '0%';
-            progressBar.style.background = '#4caf50';
-            
-            const statusContainer = songItemEl.querySelector('.download-status');
+    async function clientDownloadSingleSong(songId, quality, songName, songItemEl, downloadContainer, onDownloadComplete) {
+        const progressContainer = songItemEl.querySelector('.song-progress');
+        progressContainer.style.display = 'block';
+        const progressBar = progressContainer.querySelector('.progress-bar');
+        progressBar.style.width = '0%';
+        progressBar.style.background = '#42a5f5';
+        const statusContainer = songItemEl.querySelector('.download-status');
+        statusContainer.innerHTML = '<span class="badge badge-downloading">获取链接中</span>';
+
+        try {
+            const detailResponse = await fetch('/song/detail', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `id=${encodeURIComponent(songId)}&quality=${encodeURIComponent(quality)}`
+            });
+            const detailData = await detailResponse.json();
+
+            if (!detailData.success || !detailData.data.download_url) {
+                throw new Error(detailData.message || '未获取到下载链接');
+            }
+
+            let downloadUrl = detailData.data.download_url;
+            if (window.location.protocol === 'https:' && downloadUrl.startsWith('http://')) {
+                downloadUrl = downloadUrl.replace('http://', 'https://');
+            }
+
             statusContainer.innerHTML = '<span class="badge badge-downloading">下载中</span>';
-
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', '/Download', true);
-            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-            xhr.responseType = 'blob';
-            xhr.timeout = 600000;
-
-            xhr.ontimeout = function() {
-                clearInterval(progressInterval);
-                progressBar.style.width = '100%';
-                progressBar.style.background = '#f44336';
-                statusContainer.innerHTML = '<span class="badge badge-failed">下载超时</span>';
-                resolve(false);
-            };
-
-            let progressInterval;
-            let simulatedProgress = 0;
-            progressInterval = setInterval(() => {
-                if (simulatedProgress < 90) {
-                    simulatedProgress += 0.3;
-                    progressBar.style.width = simulatedProgress + '%';
-                }
-            }, 1000);
             
-            xhr.onload = function() {
-                clearInterval(progressInterval);
+            const response = await fetch(downloadUrl);
+            if (!response.ok) throw new Error(`下载文件失败: ${response.status}`);
+            
+            const contentLength = parseInt(response.headers.get('Content-Length'), 10);
+            const reader = response.body.getReader();
+            let receivedLength = 0;
+            const chunks = [];
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+                receivedLength += value.length;
+                const progress = Math.floor((receivedLength / contentLength) * 100);
+                progressBar.style.width = `${progress}%`;
+            }
+
+            const blob = new Blob(chunks, { type: response.headers.get('Content-Type') });
+
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = detailData.data.filename;
+
+            if (downloadContainer) {
+                // --- Safari 模式 (修改后) ---
                 
-                if (xhr.status === 200) {
-                    progressBar.style.width = '100%';
+                // 监听下载成功事件
+                a.addEventListener('load', () => {
                     statusContainer.innerHTML = '<span class="badge badge-success">已下载</span>';
-                    
-                    const encodedFilename = xhr.getResponseHeader('X-Download-Filename') || 
-                                        xhr.getResponseHeader('Content-Disposition')?.match(/filename\*=UTF-8''(.*)/)?.[1];
-                    const filename = encodedFilename ? decodeURIComponent(encodedFilename) : `${songName}.${quality === 'lossless' ? 'flac' : 'mp3'}`;
-                    
-                    const blob = xhr.response;
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    window.URL.revokeObjectURL(url);
-                    
-                    resolve(true);
-                } else {
-                    progressBar.style.width = '100%';
-                    progressBar.style.background = '#f44336';
-                    statusContainer.innerHTML = '<span class="badge badge-failed">下载失败</span>';
-                    resolve(false);
-                }
-            };
-            
-            xhr.onerror = function() {
-                clearInterval(progressInterval);
-                progressBar.style.width = '100%';
-                progressBar.style.background = '#f44336';
-                statusContainer.innerHTML = '<span class="badge badge-failed">下载失败</span>';
-                resolve(false);
-            };
-            
-            const formData = `id=${encodeURIComponent(songId)}&quality=${encodeURIComponent(quality)}&format=file`;
-            xhr.send(formData);
-        });
-    }
+                    setTimeout(() => {
+                        URL.revokeObjectURL(url);
+                        if (a.parentNode) a.parentNode.removeChild(a);
+                    }, 1000);
+                    // 调用回调，通知上层循环可以继续
+                    if (typeof onDownloadComplete === 'function') {
+                        onDownloadComplete(true);
+                    }
+                });
+                
+                // 监听下载失败/取消事件
+                a.addEventListener('error', () => {
+                    statusContainer.innerHTML = '<span class="badge badge-failed">下载取消</span>';
+                    setTimeout(() => {
+                        URL.revokeObjectURL(url);
+                        if (a.parentNode) a.parentNode.removeChild(a);
+                    }, 1000);
+                    // 调用回调，通知上层循环可以继续
+                    if (typeof onDownloadComplete === 'function') {
+                        onDownloadComplete(false);
+                    }
+                });
 
-    
+                downloadContainer.appendChild(a);
+                statusContainer.innerHTML = '<span class="badge badge-warning">请确认下载</span>';
+
+                // 返回触发下载的函数
+                return () => a.click();
+
+            } else {
+                // --- Chrome 模式 (完全不变) ---
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                progressBar.style.width = '100%';
+                statusContainer.innerHTML = '<span class="badge badge-success">已下载</span>';
+                return true;
+            }
+
+        } catch (error) {
+            console.error(`下载${songName}失败：`, error);
+            progressBar.style.width = '100%';
+            progressBar.style.background = '#f44336';
+            statusContainer.innerHTML = '<span class="badge badge-failed">下载失败</span>';
+            
+            // 如果是Safari模式且出错，也需要调用回调来解除阻塞
+            if (downloadContainer && typeof onDownloadComplete === 'function') {
+                onDownloadComplete(false);
+            }
+
+            return downloadContainer ? null : false;
+        }
+    };
+
     // 解析处理方法 - 链接解析
     function parseSingleSongHandler(id) {
         return new Promise((resolve, reject) => {
@@ -986,7 +1046,7 @@ document.addEventListener('DOMContentLoaded', function() {
         downloadBtn.disabled = true;
         downloadBtn.innerHTML = '<span class="loading"></span> 下载中...';
 
-        const success = await downloadSingleSong(
+        const success = await clientDownloadSingleSong(
             musicId, 
             quality, 
             songName, 
@@ -1008,7 +1068,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 批量下载按钮事件
     document.getElementById('batchDownloadBtn').addEventListener('click', () => {
-        requireValidCookie(batchDownload);
+        requireValidCookie(clientFastDownload);
     });
     
     // 返回歌单列表按钮事件

@@ -21,6 +21,7 @@ check_env() {
 # 启动Flask应用（前台运行，保持容器活跃）
 start_app() {
   echo "[$(log_time)] 启动应用服务..."
+  export PYTHONPATH="$APP_DIR/src:$PYTHONPATH"
   cd "$APP_DIR/src" && exec python main.py  # exec确保应用成为容器主进程
 }
 

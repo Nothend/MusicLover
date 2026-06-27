@@ -33,7 +33,7 @@ services:
 
 ### 部署步骤：
 1. 创建 `docker-compose.yml` 文件，复制上述配置
-2. 在同级目录创建 `config.yaml`，按格式填写网易云音乐黑胶会员Cookie（可不填cookie，直接部署后扫码更新cookie）
+2. 在同级目录创建 `config.yaml`（可复制仓库中的 `config.sample.yaml` 模板：`cp config.sample.yaml config.yaml`），按格式填写网易云音乐黑胶会员Cookie（可不填cookie，直接部署后扫码更新cookie）
 3. 执行部署命令：`docker-compose up -d`
 4. 访问服务：打开浏览器访问 `http://localhost:5151`
 5. 在网页的右上角【设置】中，扫码登录云音乐，系统自动更新cookie，无需手动填写
@@ -62,6 +62,8 @@ services:
 - 📋 歌单解析：批量提取歌单中所有歌曲的信息
 - 💿 专辑解析：批量获取专辑内所有歌曲的信息
 - ⬇️ 音乐下载：支持多种音质的音乐文件下载
+
+> 📥 **下载说明**：本项目采用**前端下载**方式——浏览器直接从网易云音乐获取并保存音频文件，服务端不落地存储、不写入歌曲标签等元数据，下载到的是原始音频文件。
 
 #### 🎼 音质支持
 - `standard`：标准音质 (128kbps)

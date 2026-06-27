@@ -97,6 +97,11 @@ except ImportError:
     qrcode = None
     Image = None
 
+# 模块级共享 Session：网易云接口都打到同几个域名，复用连接池可省去每次请求的 TCP/TLS 握手。
+# requests.Session 在多线程下发请求是安全的，契合 Flask 的 threaded=True 运行方式。
+SESSION = requests.Session()
+
+
 class QualityLevel(Enum):
     """音质等级枚举"""
     STANDARD = "standard"      # 标准音质
@@ -187,42 +192,28 @@ class HTTPClient:
     """HTTP客户端类"""
     
     @staticmethod
-    def post_request(url: str, params: str, cookies: Dict[str, str]) -> str:
-        """发送POST请求并返回文本响应"""
-        headers = {
-            'User-Agent': APIConstants.USER_AGENT,
-            'Referer': APIConstants.REFERER,
-        }
-        
-        request_cookies = APIConstants.DEFAULT_COOKIES.copy()
-        request_cookies.update(cookies)
-        
-        try:
-            response = requests.post(url, headers=headers, cookies=request_cookies, 
-                                   data={"params": params}, timeout=30)
-            response.raise_for_status()
-            return response.text
-        except requests.RequestException as e:
-            raise APIException(f"HTTP请求失败: {e}")
-    
-    @staticmethod
     def post_request_full(url: str, params: str, cookies: Dict[str, str]) -> requests.Response:
         """发送POST请求并返回完整响应对象"""
         headers = {
             'User-Agent': APIConstants.USER_AGENT,
             'Referer': APIConstants.REFERER,
         }
-        
+
         request_cookies = APIConstants.DEFAULT_COOKIES.copy()
         request_cookies.update(cookies)
-        
+
         try:
-            response = requests.post(url, headers=headers, cookies=request_cookies, 
+            response = SESSION.post(url, headers=headers, cookies=request_cookies,
                                    data={"params": params}, timeout=30)
             response.raise_for_status()
             return response
         except requests.RequestException as e:
             raise APIException(f"HTTP请求失败: {e}")
+
+    @staticmethod
+    def post_request(url: str, params: str, cookies: Dict[str, str]) -> str:
+        """发送POST请求并返回文本响应"""
+        return HTTPClient.post_request_full(url, params, cookies).text
 
 
 class APIException(Exception):
@@ -290,7 +281,7 @@ class NeteaseAPI:
         """
         try:
             data = {'c': json.dumps([{"id": song_id, "v": 0}])}
-            response = requests.post(APIConstants.SONG_DETAIL_V3, data=data, timeout=30)
+            response = SESSION.post(APIConstants.SONG_DETAIL_V3, data=data, timeout=30)
             response.raise_for_status()
             
             result = response.json()
@@ -334,7 +325,7 @@ class NeteaseAPI:
                 'Referer': APIConstants.REFERER
             }
             
-            response = requests.post(APIConstants.LYRIC_API, data=data, 
+            response = SESSION.post(APIConstants.LYRIC_API, data=data, 
                                    headers=headers, cookies=cookies, timeout=30)
             response.raise_for_status()
             
@@ -369,7 +360,7 @@ class NeteaseAPI:
                 'Referer': APIConstants.REFERER
             }
             
-            response = requests.post(APIConstants.SEARCH_API, data=data, 
+            response = SESSION.post(APIConstants.SEARCH_API, data=data, 
                                    headers=headers, cookies=cookies, timeout=30)
             response.raise_for_status()
             
@@ -437,7 +428,7 @@ class NeteaseAPI:
             }
             
             # 发送POST请求
-            response = requests.post(
+            response = SESSION.post(
                 url=APIConstants.PERSONAL_PLAYLIST_API,
                 data=data,
                 headers=headers,
@@ -506,7 +497,7 @@ class NeteaseAPI:
                 'Referer': APIConstants.REFERER
             }
             
-            response = requests.post(APIConstants.PLAYLIST_DETAIL_API, data=data, 
+            response = SESSION.post(APIConstants.PLAYLIST_DETAIL_API, data=data, 
                                    headers=headers, cookies=cookies, timeout=30)
             response.raise_for_status()
             
@@ -536,7 +527,7 @@ class NeteaseAPI:
                 batch_ids = track_ids[i:i+100]
                 song_data = {'c': json.dumps([{'id': int(sid), 'v': 0} for sid in batch_ids])}
                 
-                song_resp = requests.post(APIConstants.SONG_DETAIL_V3, data=song_data, 
+                song_resp = SESSION.post(APIConstants.SONG_DETAIL_V3, data=song_data, 
                                         headers=headers, cookies=cookies, timeout=30)
                 song_resp.raise_for_status()
                 
@@ -576,7 +567,7 @@ class NeteaseAPI:
                 'Referer': APIConstants.REFERER
             }
             
-            response = requests.get(url, headers=headers, cookies=cookies, timeout=30)
+            response = SESSION.get(url, headers=headers, cookies=cookies, timeout=30)
             response.raise_for_status()
             
             result = response.json()
@@ -653,7 +644,7 @@ class NeteaseAPI:
             }
             
             # 发送请求（该接口无需复杂参数，仅需登录态Cookie）
-            response = requests.post(
+            response = SESSION.post(
                 APIConstants.USER_ACCOUNT_API,
                 headers=headers,
                 cookies=cookies,
@@ -725,27 +716,32 @@ class NeteaseAPI:
             格式化后的日期字符串，转换失败返回空字符串
         """
         try:
-            # 1. 统一转换为毫秒级时间戳（根据实际值判断是否为秒级）
-            # 阈值：5e11毫秒 ≈ 1985年，小于该值的10-12位可能是秒级
-            if timestamp_int < 10**10:
-                # 小于10位：无效
-                return ""
-            elif timestamp_int < 5 * 10**11:
-                # 10-11位且小于5e11：视为秒级，转换为毫秒级（×1000）
-                timestamp_int *= 1000
-            # 12-13位且>=5e11：视为毫秒级，不转换（保持原数）
+            # 1. 按位数判断单位（优先逻辑，避免数值误判）
+            ts_str = str(timestamp_int)
+            ts_len = len(ts_str)
             
-            # 2. 验证时间范围（1970-01-01 ~ 2100-12-31）
+            if ts_len == 10:
+                # 10位：秒级 → 转为毫秒级
+                timestamp_ms = timestamp_int * 1000
+            elif 11 <= ts_len <= 13:
+                # 11-13位：毫秒级 → 直接使用
+                timestamp_ms = timestamp_int
+            else:
+                # 其他位数：无效
+                return ""
+            
+            # 2. 验证时间范围（1970-01-01 ~ 2100-12-31，毫秒级）
             min_ts = 0  # 1970-01-01 00:00:00（毫秒级）
-            max_ts = 4102444799000  # 2100-12-31 23:59:59（毫秒级，修正后的值）
-            if not (min_ts <= timestamp_int <= max_ts):
+            max_ts = 4102444799000  # 2100-12-31 23:59:59（毫秒级）
+            if not (min_ts <= timestamp_ms <= max_ts):
                 return ""
             
-            # 3. 转换为日期（毫秒级→秒级）
-            return datetime.fromtimestamp(timestamp_int / 1000).strftime("%Y-%m-%d")
+            # 3. 转换为日期（毫秒级→秒级，除以1000）
+            return datetime.fromtimestamp(timestamp_ms / 1000).strftime("%Y-%m-%d")
         
         except (ValueError, TypeError, OSError):
             return ""
+
 
 class QRLoginManager:
     """二维码登录管理器"""
