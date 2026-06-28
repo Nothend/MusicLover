@@ -5,6 +5,7 @@
 依赖 PyPI 的 tzdata 提供 IANA 时区库（Alpine 镜像默认无系统 tz 数据）。
 """
 import logging
+import os
 import threading
 import time
 from datetime import datetime, timedelta
@@ -52,19 +53,27 @@ def start_daily_notifier(stats, get_bark_url, hour: int = 20, minute: int = 0) -
         while True:
             time.sleep(_seconds_until(hour, minute))
             try:
-                snap = stats.snapshot()
                 today = datetime.now(BEIJING).strftime("%Y-%m-%d")
+                # 跨进程去重：多实例并存（如更新镜像时新旧容器重叠）时，当天仅首个抢到令牌的实例发送
+                if not stats.try_claim_daily_push(today):
+                    logger.info(f"今日（{today}）推送已由其他实例发送，本实例跳过")
+                    time.sleep(1)
+                    continue
+                snap = stats.snapshot()
+                version = os.getenv("APP_VERSION", "unknown")
                 title = "MusicLover 今日统计"
                 body = (
                     f"📅 {today}\n"
                     f"👤 使用人数(去重IP): {snap['users']}\n"
                     f"⬇️ 下载歌曲: {snap['downloads']}\n"
-                    f"Σ 累计下载: {snap['total_downloads']}"
+                    f"Σ 累计下载: {snap['total_downloads']}\n"
+                    f"🏷 版本: {version}"
                 )
                 if send_bark(get_bark_url(), title, body):
-                    logger.info(f"已推送今日统计: 人数={snap['users']} 下载={snap['downloads']}")
+                    logger.info(f"已推送今日统计: 人数={snap['users']} 下载={snap['downloads']} 版本={version}")
                     stats.reset_period()  # 仅推送成功才清零，失败则保留到下次一并发送
                 else:
+                    stats.release_daily_push(today)  # 释放令牌，允许下次重试
                     logger.warning("今日统计推送失败，当期数据保留，将在下次推送时一并发送")
             except Exception as e:
                 logger.error(f"每日统计推送异常: {e}")
