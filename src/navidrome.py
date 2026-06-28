@@ -5,10 +5,23 @@ from typing import Dict
 
 class NavidromeClient:
     def __init__(self, host: str, username: str, password: str):
-        self.navidrome_host = host
         self.navidrome_user = username
         self.navidrome_pass = password
         self.logger = logging.getLogger(__name__)
+        # 连接复用：歌单/专辑会对几十首歌逐首标注，复用 Session 避免每首歌重建 TCP/TLS 连接
+        self.session = requests.Session()
+        # 启动时归一化一次 base_url（保留配置里的 http/https 协议，缺省补 http），避免每次请求重复处理
+        self.base_url = self._normalize_base_url(host)
+
+    @staticmethod
+    def _normalize_base_url(host: str) -> str:
+        """归一化 Navidrome 主机地址：补全协议（默认 http）、去掉尾部斜杠。"""
+        host = (host or '').strip()
+        if not host:
+            return ''
+        if not re.match(r'^https?://', host):
+            host = f"http://{host}"
+        return host.rstrip('/')
 
     # 辅助方法：生成空结果
     def _get_empty_result(self) -> dict:
@@ -76,21 +89,6 @@ class NavidromeClient:
         return f"{size:.2f}{units[unit_index]}"
 
 
-    def _authenticate(self) -> None:
-        """进行身份验证"""
-        try:
-            response = self.session.post(
-                f"{self.host}/api/login",
-                json={"username": self.username, "password": self.password}
-            )
-            response.raise_for_status()
-            self.logger.info("Navidrome 认证成功")
-        except Exception as e:
-            self.logger.error(f"Navidrome 认证失败: {str(e)}")
-            raise
-    def navidrome_empty_result(self) -> dict:
-        return self._get_empty_result()
-
     def navidrome_song_exists(self, title: str, artists: str, album: str) -> dict:
         """
         优化匹配逻辑：
@@ -99,17 +97,9 @@ class NavidromeClient:
         - 支持多歌手匹配，返回完整歌手名
         """
         try:
-            if not self.navidrome_host:
+            if not self.base_url:
                 self.logger.debug("Navidrome 主机地址未配置，跳过检查")
                 return self._get_empty_result()
-
-            # 清理主机地址
-            clean_host = re.sub(r'^https?://', '', self.navidrome_host.strip())
-            if not clean_host:
-                self.logger.error("Navidrome 主机地址配置为空")
-                return self._get_empty_result()
-            base_url = f"http://{clean_host}"
-            base_url = base_url[:-1] if base_url.endswith('/') else base_url
 
             # 认证信息
             username = self.navidrome_user or ""
@@ -131,11 +121,11 @@ class NavidromeClient:
                 "songCount": 20  # 适当增加候选数量
             }
 
-            url = f"{base_url}/rest/search2"
+            url = f"{self.base_url}/rest/search2"
             self.logger.debug(f"搜索 Navidrome: {url} (参数: {params})")
 
-            # 发送请求
-            resp = requests.get(url, params=params, timeout=10)
+            # 发送请求（复用 Session 连接）
+            resp = self.session.get(url, params=params, timeout=10)
             resp.raise_for_status()
             data = resp.json()
             self.logger.debug(f"Navidrome 响应: {data}")
@@ -153,7 +143,7 @@ class NavidromeClient:
             # 预处理匹配条件
             title_target = title.strip().lower()
             album_target = (album or "").strip().lower()
-            input_artists = [a.strip().lower() for a in re.split(r'[\/,;]', artists or '') if a.strip()]
+            input_artists = [a.strip().lower() for a in re.split(r'[\/,;&]', artists or '') if a.strip()]
 
             for item in candidates:
                 # 提取候选歌曲信息
@@ -170,7 +160,7 @@ class NavidromeClient:
 
                 # 2. 歌手名匹配（双向匹配逻辑）
                 artist_match = False
-                nav_artists_split = [a.strip().lower() for a in re.split(r'[\/,;]', nav_artist_lower) if a.strip()]
+                nav_artists_split = [a.strip().lower() for a in re.split(r'[\/,;&]', nav_artist_lower) if a.strip()]
                 
                 if input_artists:
                     for in_artist in input_artists:

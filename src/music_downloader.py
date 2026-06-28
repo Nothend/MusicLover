@@ -150,26 +150,31 @@ class MusicDownloader:
     
     def _timestamp_str_to_date(self, timestamp_int: int) -> str:
         """
-        将整数时间戳（13位或11位）转换为YYYY-MM-DD格式
-        
+        将整数时间戳（10-13位）转换为YYYY-MM-DD格式
+
         Args:
-            timestamp: 整数时间戳（如1305388800000或13053888000）
-            
+            timestamp_int: 整数时间戳（10位秒级 / 11-13位毫秒级）
+
         Returns:
             格式化后的日期字符串，转换失败返回空字符串
         """
         try:
-            # 1. 处理11位时间戳（补全为13位毫秒级）
-            if 10**10 <= timestamp_int < 10**11:  # 11位数字范围（10000000000 ~ 99999999999）
-                timestamp *= 100  # 转换为13位（如13053888000 → 1305388800000）
-            
-            # 2. 验证13位时间戳（毫秒级）
-            if not (10**12 <= timestamp_int < 10**13):  # 13位数字范围（1000000000000 ~ 9999999999999）
+            # 1. 按位数判断单位（10位为秒级，11-13位为毫秒级）
+            ts_len = len(str(timestamp_int))
+            if ts_len == 10:
+                timestamp_ms = timestamp_int * 1000
+            elif 11 <= ts_len <= 13:
+                timestamp_ms = timestamp_int
+            else:
                 return ""
-            
-            # 3. 转换为年月日（毫秒级时间戳需÷1000）
-            return datetime.fromtimestamp(timestamp_int / 1000).strftime("%Y-%m-%d")
-        
+
+            # 2. 验证时间范围（1970-01-01 ~ 2100-12-31，毫秒级）
+            if not (0 <= timestamp_ms <= 4102444799000):
+                return ""
+
+            # 3. 转换为年月日（毫秒级→秒级，除以1000）
+            return datetime.fromtimestamp(timestamp_ms / 1000).strftime("%Y-%m-%d")
+
         except (ValueError, TypeError, OSError):
             # 处理异常情况（如数值溢出、非整数类型等）
             return ""
@@ -396,7 +401,7 @@ class MusicDownloader:
             )
     
     def download_music_to_memory(self, music_info:MusicInfo, quality: str = "standard") -> Tuple[bool, BytesIOType, MusicInfo]:
-        """下载音乐到内存（含标签写入）"""
+        """下载音乐到内存（本项目不写入任何标签/元信息，返回原始音频）"""
         try:
             # 检查是否超过并发限制
             with self.download_lock:
@@ -625,5 +630,4 @@ if __name__ == "__main__":
     print("- 异步下载")
     print("- 批量下载")
     print("- 内存下载")
-    print("- 音乐标签写入")
     print("- 下载进度跟踪")
