@@ -8,6 +8,7 @@
 """
 import json
 import logging
+import os
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -97,3 +98,43 @@ class StatsTracker:
             self._downloads = 0
             self._period_start = self._now_str()
             self._save_locked()
+
+    def try_claim_daily_push(self, date_str: str) -> bool:
+        """跨进程抢占「当天已推送」令牌：原子创建标记文件，抢到返回 True。
+
+        用于多实例并存（如更新镜像时新旧容器短暂重叠）的场景，保证当天仅一个
+        实例发送每日推送。标记文件与 stats.json 同目录，**须位于共享挂载卷内**
+        才能跨容器去重。标记机制本身异常时退化为「允许推送」，不阻断通知。
+        """
+        marker = self.path.parent / f".bark_pushed_{date_str}"
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            # O_CREAT|O_EXCL 原子创建：文件已存在则抛 FileExistsError（即已有实例抢到）
+            fd = os.open(str(marker), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            try:
+                os.write(fd, self._now_str().encode("utf-8"))
+            finally:
+                os.close(fd)
+            self._cleanup_stale_markers(keep=date_str)
+            return True
+        except FileExistsError:
+            return False
+        except Exception as e:
+            logger.warning(f"创建推送标记失败，按允许推送处理: {e}")
+            return True
+
+    def release_daily_push(self, date_str: str) -> None:
+        """释放当天令牌（推送失败时调用），以便下次重试。"""
+        try:
+            (self.path.parent / f".bark_pushed_{date_str}").unlink(missing_ok=True)
+        except Exception as e:
+            logger.warning(f"释放推送标记失败: {e}")
+
+    def _cleanup_stale_markers(self, keep: str) -> None:
+        """清理除 keep 当天之外的历史推送标记，避免标记文件无限堆积。"""
+        try:
+            for p in self.path.parent.glob(".bark_pushed_*"):
+                if p.name != f".bark_pushed_{keep}":
+                    p.unlink(missing_ok=True)
+        except Exception:
+            pass
