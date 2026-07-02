@@ -13,6 +13,7 @@ __pycache__
 
 venv
 .venv
+.claude
 downloads/
 logs/
 
