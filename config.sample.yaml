@@ -1,73 +1,26 @@
-# 网易云配置
+# 网易云 cookie（需黑胶会员才能解析无损/Hi-Res；可用页面上的扫码登录自动获取并回写到本文件）
 cookie: 'MUSIC_U=XXX;os=pc;appver=8.9.75;'
 
-# 日志级别
+# 日志级别（DEBUG/INFO/WARNING/ERROR）
 LEVEL: "INFO"
 
-# API/服务配置
-web_host: '0.0.0.0'
-web_port: '5151'
-debug: false
-downloads_dir: 'downloads'
-max_file_size: 524288000
-request_timeout: 30
-log_level: 'INFO'
-cors_origins: '*'
-
-# 下载音乐的品质
-#     """音质等级枚举"""
-#     "standard"    # 标准
-#     "exhigh"      # 极高
-#     "lossless"    # 无损
-#     "hires"       # Hi-Res
-#     "sky"         # 沉浸环绕声
-#     "jyeffect"    # 高清环绕声
-#     "jymaster"    # 超清母带
-QUALITY_LEVEL: "lossless"
-# 控制二维码功能的密码
+# 控制页面上“扫码登录”功能的密码
 QR_PASSWORD: 9527
-# Navidrome配置
-NAVIDROME:
-  NAVIDROME_HOST: "http://192.168.0.6:4533"
-  NAVIDROME_USER: "admin"
-  NAVIDROME_PASS: "admin"
-  # 是否开启 Navidrome 检查
-  USE_NAVIDROME: false
 
-# music-tag-web
-mysql:
-  # 是否检查music-tag-web使用的MySQL数据库
-  USE_MYSQL: false
-  # 服务器IP地址
-  host: 192.168.0.6
-  # 端口号（默认MySQL端口为3306）
-  port: 3306
-  # 数据库用户名
-  user: root
-  # 数据库密码
-  password: admin
-  # 数据库名称
-  database: music_tag
+# 可选服务项（都有内置默认值，需要改再取消注释）：
+#   web_host: '0.0.0.0'   # 监听地址
+#   web_port: '5151'      # 监听端口
+#   debug: false          # 调试模式（会启用 Werkzeug 热重载）
+#   cors_origins: '*'      # CORS 允许来源
+
+# 请求安全与限流
 WebSecurity:
-  # 安全配置
-  API_KEY: '6868'  # 替换为你的API密钥
-  RATE_LIMIT: '200/hour'  # 每小时最多100次请求（可调整）
-  RATE_LIMIT_STORAGE: 'memory://'  # 限流计数存储；单进程部署用 memory:// 即可，仅多worker/多副本才需 redis://host:6379
-  # 信任的IP白名单（白名单内 IP 免来源校验直接放行）
-  # 注意：Docker 桥接网络下，Flask 看到的客户端 IP 往往是网关地址（如 172.x.x.x）或反代真实 IP，
-  # 未必落在下面网段；同源请求已自动放行，此白名单一般无需依赖。
+  API_KEY: '6868'                    # 非网页来源需带此 key（X-API-Key 头或 ?api_key=）
+  RATE_LIMIT: '200/hour'             # 每 IP 默认限流
+  RATE_LIMIT_STORAGE: 'memory://'    # 限流计数存储；单进程用 memory:// 即可，多 worker/多副本才需 redis://host:6379
+  # 信任的 IP 白名单（白名单内 IP 免来源校验直接放行）
+  # 注意：Docker 桥接网络下 Flask 看到的往往是网关或反代 IP，未必落在下面网段；同源请求已自动放行，此白名单一般无需依赖。
   IP_WHITELIST: ["127.0.0.1", "192.168.1.0/24"]
-  PROTECTED_ENDPOINTS: [  # 需要保护的接口路径
-        "/song", "/search", "/playlist", "/album", 
-        "/download", "/api/qr", "/song/detail"
-    ]
-  PUBLIC_ENDPOINTS: ["/health", "/api/info", "/"]  # 公开接口（无需保护）
-  # 额外放行的来源（同源请求已自动放行，此处仅用于放行其它域名，如前置反代/CDN域名）
+  PUBLIC_ENDPOINTS: ["/health", "/"]  # 公开接口（无需来源校验）
+  # 额外放行的来源（同源请求已自动放行，此处仅用于放行其它域名，如前置反代/CDN 域名）
   ALLOWED_ORIGINS: "http://localhost:5151"
-
-# 使用统计 + Bark 每日推送（每天定时把当期“去重访问IP数 + 下载歌曲数”推送到 Bark，推送后清零）
-BARK:
-  USE_BARK: false                                   # 是否开启每日统计推送
-  BARK_URL: "https://api.day.app/your_key_here"     # 你的 Bark 推送地址（含 key）
-  BARK_TIME: "20:00"                                # 每日推送时间（北京时间 HH:MM）
-  STATS_FILE: "/app/logs/stats.json"                # 统计持久化路径（须在挂载卷内，否则重建容器会丢）

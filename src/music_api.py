@@ -125,14 +125,10 @@ class APIConstants:
     SONG_URL_V1 = "https://interface3.music.163.com/eapi/song/enhance/player/url/v1"
     SONG_DETAIL_V3 = "https://interface3.music.163.com/api/v3/song/detail"
     LYRIC_API = "https://interface3.music.163.com/api/song/lyric"
-    SEARCH_API = 'https://music.163.com/api/cloudsearch/pc'
     PLAYLIST_DETAIL_API = 'https://music.163.com/api/v6/playlist/detail'
     ALBUM_DETAIL_API = 'https://music.163.com/api/v1/album/'
     QR_UNIKEY_API = 'https://interface3.music.163.com/eapi/login/qrcode/unikey'
     QR_LOGIN_API = 'https://interface3.music.163.com/eapi/login/qrcode/client/login'
-
-    #// 个人歌单
-    PERSONAL_PLAYLIST_API='https://music.163.com/api/user/playlist'
 
     QR_LOGIN_CHECK = 'https://music.163.com/login?csrf_token='
 
@@ -338,144 +334,6 @@ class NeteaseAPI:
             raise APIException(f"获取歌词请求失败: {e}")
         except json.JSONDecodeError as e:
             raise APIException(f"解析歌词响应失败: {e}")
-    
-    def search_music(self, keywords: str, cookies: Dict[str, str], limit: int = 10) -> List[Dict[str, Any]]:
-        """搜索音乐
-        
-        Args:
-            keywords: 搜索关键词
-            cookies: 用户cookies
-            limit: 返回数量限制
-            
-        Returns:
-            歌曲信息列表
-            
-        Raises:
-            APIException: API调用失败时抛出
-        """
-        try:
-            data = {'s': keywords, 'type': 1, 'limit': limit}
-            headers = {
-                'User-Agent': APIConstants.USER_AGENT,
-                'Referer': APIConstants.REFERER
-            }
-            
-            response = SESSION.post(APIConstants.SEARCH_API, data=data, 
-                                   headers=headers, cookies=cookies, timeout=30)
-            response.raise_for_status()
-            
-            result = response.json()
-            if result.get('code') != 200:
-                raise APIException(f"搜索失败: {result.get('message', '未知错误')}")
-            
-            songs = []
-            for item in result.get('result', {}).get('songs', []):
-                song_info = {
-                    'id': item['id'],
-                    'name': item['name'],
-                    'artists': '/'.join(artist['name'] for artist in item['ar']),
-                    'album': item['al']['name'],
-                    'picUrl': item['al']['picUrl'],
-                    'publishTime': item['publishTime']
-                }
-                songs.append(song_info)
-            
-            return songs
-        except requests.RequestException as e:
-            raise APIException(f"搜索请求失败: {e}")
-        except (json.JSONDecodeError, KeyError) as e:
-            raise APIException(f"解析搜索响应失败: {e}")
-        
-    def get_user_playlist(self, uid: int, cookies: Dict[str, str]) -> Dict[str, Any]:
-        """获取用户的歌单列表详情
-        
-        Args:
-            uid: 用户ID
-            cookies: 用户登录态cookies
-            
-        Returns:
-            包含处理后的歌单列表的字典，结构如下：
-            {
-                "total": int,  # 歌单总数
-                "playlists": [
-                    {
-                        "id": int,  # 歌单ID
-                        "name": str,  # 歌单名称
-                        "track_count": int,  # 歌曲数量
-                        "update_time": str,  # 歌单更新时间（YYYY-MMMM-DDDD）
-                        "track_update_time": str  # 歌曲更新时间（YYYY-MMMM-DDDD）
-                    },
-                    ...
-                ]
-            }
-            
-        Raises:
-            APIException: API调用失败或响应解析错误时抛出
-        """
-        try:
-            # 构建请求参数
-            data = {
-                'uid': uid,
-                'offset': 0,
-                'limit': 20
-            }
-            
-            # 构建请求头
-            headers = {
-                'User-Agent': APIConstants.USER_AGENT,
-                'Referer': APIConstants.REFERER,
-                'Content-Type': 'application/x-www-form-urlencoded'
-            }
-            
-            # 发送POST请求
-            response = SESSION.post(
-                url=APIConstants.PERSONAL_PLAYLIST_API,
-                data=data,
-                headers=headers,
-                cookies=cookies,
-                timeout=30
-            )
-            response.raise_for_status()  # 抛出HTTP错误状态码
-            
-            # 解析响应JSON
-            result = response.json()
-            
-            # 检查API返回状态
-            if result.get('code') != 200:
-                raise APIException(f"获取用户歌单失败: {result.get('message', '未知错误')}")
-            
-            # 提取歌单列表（确保为列表类型）
-            playlists: List[Dict[str, Any]] = result.get('playlist', [])
-            processed_playlists = []
-            
-            # 遍历处理每个歌单
-            for playlist in playlists:
-                # 转换时间戳（使用类内时间转换方法）
-                update_time = self._timestamp_str_to_date(playlist.get('updateTime', ''))
-                track_update_time = self._timestamp_str_to_date(playlist.get('trackUpdateTime', ''))
-                
-                # 封装处理后的歌单信息
-                processed_playlist = {
-                    'id': playlist.get('id'),
-                    'name': playlist.get('name'),
-                    'track_count': playlist.get('trackCount'),
-                    'update_time': update_time,
-                    'track_update_time': track_update_time
-                }
-                processed_playlists.append(processed_playlist)
-            
-            # 构建返回结果
-            return {
-                'total': len(processed_playlists),
-                'playlists': processed_playlists
-            }
-            
-        except requests.RequestException as e:
-            raise APIException(f"获取用户歌单请求失败: {str(e)}")
-        except (json.JSONDecodeError, KeyError) as e:
-            raise APIException(f"解析用户歌单响应失败: {str(e)}")
-        except Exception as e:
-            raise APIException(f"处理用户歌单时发生未知错误: {str(e)}")
     
     def get_playlist_detail(self, playlist_id: int, cookies: Dict[str, str]) -> Dict[str, Any]:
         """获取歌单详情
@@ -1011,21 +869,10 @@ def lyric_v1(song_id: int, cookies: Dict[str, str]) -> Dict[str, Any]:
     return api.get_lyric(song_id, cookies)
 
 
-def search_music(keywords: str, cookies: Dict[str, str], limit: int = 10) -> List[Dict[str, Any]]:
-    """搜索音乐（向后兼容）"""
-    api = NeteaseAPI()
-    return api.search_music(keywords, cookies, limit)
-
-
 def playlist_detail(playlist_id: int, cookies: Dict[str, str]) -> Dict[str, Any]:
     """获取歌单详情（向后兼容）"""
     api = NeteaseAPI()
     return api.get_playlist_detail(playlist_id, cookies)
-
-def user_playlist(uid: int, cookies: Dict[str, str]) -> Dict[str, Any]:
-    """获取用户（向后兼容）"""
-    api = NeteaseAPI()
-    return api.get_user_playlist(uid, cookies)
 
 
 def album_detail(album_id: int, cookies: Dict[str, str]) -> Dict[str, Any]:

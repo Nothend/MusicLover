@@ -1,11 +1,15 @@
-"""网易云音乐API服务主程序
+"""网易云音乐解析下载 Web 服务主程序（纯前端下载版）。
 
-提供网易云音乐相关API服务,包括:
-- 歌曲信息获取
-- 音乐搜索
-- 歌单和专辑详情
-- 音乐下载
-- 健康检查
+只服务一个网页应用：解析单曲/歌单/专辑 → 浏览器直接下载。
+提供的接口都是这个页面自己会调用的：
+- /                 网页
+- /health           健康检查
+- /song             单曲解析（url/name/lyric/json）
+- /song/detail      拿下载直链 + 元信息（前端下载核心）
+- /playlist /album  歌单/专辑解析
+- /api/qr/*         扫码登录
+- /api/check-password / /api/check-cookie  密码门 / cookie 校验
+服务端不落地文件、不写标签，下载由浏览器完成。
 """
 
 import logging
@@ -15,27 +19,22 @@ import time
 import traceback
 import ipaddress
 import requests
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
-from urllib.parse import quote, urlparse
-from flask import Flask, jsonify, request, send_file, render_template, Response
+from urllib.parse import urlparse
+from flask import Flask, jsonify, request, render_template, Response
 from config import Config
-from navidrome import NavidromeClient
 from logger import setup_logger
-from stats import StatsTracker
-from notifier import start_daily_notifier
 
 from flask_limiter import Limiter
 
 try:
     from music_api import (
-        NeteaseAPI, APIException, QualityLevel,QRLoginManager,
-        url_v1, name_v1, lyric_v1, search_music, 
-        playlist_detail, album_detail,user_playlist
+        NeteaseAPI, APIException, QualityLevel, QRLoginManager,
+        url_v1, name_v1, lyric_v1, playlist_detail, album_detail,
     )
     from cookie_manager import CookieManager, CookieException
-    from music_downloader import MusicDownloader, DownloadException, AudioFormat
+    from filename import sanitize_filename, file_extension
 except ImportError as e:
     print(f"导入模块失败: {e}")
     print("请确保所有依赖模块存在且可用")
@@ -46,22 +45,9 @@ except ImportError as e:
 VALID_QUALITIES = [q.value for q in QualityLevel]
 
 
-@dataclass
-class APIConfig:
-    """API配置类"""
-    host: str = '0.0.0.0'
-    port: int = 5000
-    debug: bool = False
-    downloads_dir: str = 'downloads'
-    max_file_size: int = 500 * 1024 * 1024  # 500MB
-    request_timeout: int = 30
-    log_level: str = 'INFO'
-    cors_origins: str = '*'
-
-
 class APIResponse:
     """API响应工具类"""
-    
+
     @staticmethod
     def success(data: Any = None, message: str = 'success', status_code: int = 200) -> Tuple[Dict[str, Any], int]:
         """成功响应"""
@@ -73,7 +59,7 @@ class APIResponse:
         if data is not None:
             response['data'] = data
         return response, status_code
-    
+
     @staticmethod
     def error(message: str, status_code: int = 400, error_code: str = None) -> Tuple[Dict[str, Any], int]:
         """错误响应"""
@@ -88,36 +74,19 @@ class APIResponse:
 
 
 class MusicAPIService:
-    """音乐API服务类"""
-    
-    def __init__(self, user_config:Config):
-        self._user_config=user_config
+    """音乐解析服务：封装 cookie、NetEase 客户端、扫码登录与单曲信息解析。"""
+
+    def __init__(self, user_config: Config):
+        self._user_config = user_config
         self.cookie_manager = CookieManager(user_config)
         self.netease_api = NeteaseAPI()
-        self.qr_manager=QRLoginManager()
-        
-        self.use_navidrome=user_config.is_enabled('NAVIDROME')
-        # Navidrome 客户端无状态，启用时构建一次复用即可，避免每个请求/每首歌重复创建
-        self.navidrome: Optional[NavidromeClient] = None
-        if self.use_navidrome:
-            self.navidrome = NavidromeClient(
-                user_config.get_nested("NAVIDROME.NAVIDROME_HOST"),
-                user_config.get_nested("NAVIDROME.NAVIDROME_USER"),
-                user_config.get_nested("NAVIDROME.NAVIDROME_PASS"),
-            )
-        self.quality_level = self._user_config.get("QUALITY_LEVEL", "lossless")
-        # 创建下载目录
-        self.downloads_path = Path("/app/downloads")
-        self.downloads_path.mkdir(exist_ok=True)
-        
+        self.qr_manager = QRLoginManager()
         self.logger = logging.getLogger(__name__)
-        self.logger.info(f"下载目录已设置为: /app/downloads")
-        self.logger.info(f"下载音乐品质已设置为: { {"standard": "标准", "exhigh": "极高", "lossless": "无损", "hires": "Hi-Res", "sky": "沉浸环绕声", "jyeffect": "高清环绕声", "jymaster": "超清母带"}.get (self.quality_level, "未知品质")}")
-        self.downloader = MusicDownloader(self.cookie_manager.parse_cookie_string(self.cookie_manager.cookie_string), "/app/downloads")
+
     @property
     def user_config(self) -> Config:
         return self._user_config
-    
+
     def _get_cookies(self) -> Dict[str, str]:
         """获取Cookie"""
         try:
@@ -129,7 +98,7 @@ class MusicAPIService:
         except Exception as e:
             self.logger.error(f"Cookie处理异常: {e}")
             return {}
-    
+
     def _extract_music_id(self, id_or_url: str) -> str:
         """提取音乐ID"""
         try:
@@ -137,39 +106,38 @@ class MusicAPIService:
             if '163cn.tv' in id_or_url:
                 response = requests.get(id_or_url, allow_redirects=False, timeout=10)
                 id_or_url = response.headers.get('Location', id_or_url)
-            
+
             # 处理网易云链接
             if 'music.163.com' in id_or_url:
                 index = id_or_url.find('id=') + 3
                 if index > 2:
                     return id_or_url[index:].split('&')[0]
-            
+
             # 直接返回ID
             return str(id_or_url).strip()
-            
+
         except Exception as e:
             self.logger.error(f"提取音乐ID失败: {e}")
             return str(id_or_url).strip()
-    
+
     def _format_file_size(self, size_bytes: int) -> str:
         """格式化文件大小"""
         if size_bytes == 0:
             return "0B"
-        
+
         units = ["B", "KB", "MB", "GB", "TB"]
         size = float(size_bytes)
         unit_index = 0
-        
+
         while size >= 1024.0 and unit_index < len(units) - 1:
             size /= 1024.0
             unit_index += 1
-        
+
         return f"{size:.2f}{units[unit_index]}"
-    
+
     def build_download_filename(self, name: str, artists, url: str = "") -> str:
         """统一生成下载文件名：『歌手 - 歌曲名.<ext>』。
 
-        各路由此前各自拼接文件名（分隔符 & / , 不一致），这里统一收敛。
         因本项目不写入任何元信息，文件名是辨识歌曲的唯一依据，务必保证『歌手 - 歌曲名』格式。
 
         Args:
@@ -182,12 +150,12 @@ class MusicAPIService:
         else:
             artist_str = (artists or '').strip() or '未知艺术家'
         title = (name or '').strip() or '未知歌曲'
-        safe_filename = self.downloader.get_sanitize_filename(f"{artist_str} - {title}")
-        file_ext = self.downloader.get_file_extension(url) if url else ''
+        safe_filename = sanitize_filename(f"{artist_str} - {title}")
+        file_ext = file_extension(url) if url else ''
         return f"{safe_filename}{file_ext}"
 
     def resolve_song_info(self, music_id, quality: str, cookies: Dict[str, str]):
-        """解析单曲完整信息，/song/detail 与 /download 共用此核心逻辑。
+        """解析单曲完整信息（/song/detail 用）。
 
         统一完成：ID 归一化 → 基本信息 → 下载链接 → 歌词 → 专辑发行时间 →
         组装 music_info（含统一文件名『歌手 - 歌曲名.<ext>』与艺术家列表）。
@@ -248,7 +216,7 @@ class MusicAPIService:
         """获取音质显示名称"""
         quality_names = {
             'standard': "标准音质",
-            'exhigh': "极高音质", 
+            'exhigh': "极高音质",
             'lossless': "无损音质",
             'hires': "Hi-Res音质",
             'sky': "沉浸环绕声",
@@ -256,14 +224,14 @@ class MusicAPIService:
             'jymaster': "超清母带"
         }
         return quality_names.get(quality, f"未知音质({quality})")
-    
+
     def _validate_request_params(self, required_params: Dict[str, Any]) -> Optional[Tuple[Dict[str, Any], int]]:
         """验证请求参数"""
         for param_name, param_value in required_params.items():
             if not param_value:
                 return APIResponse.error(f"参数 '{param_name}' 不能为空", 400)
         return None
-    
+
     def _safe_get_request_data(self) -> Dict[str, Any]:
         """安全获取请求数据"""
         try:
@@ -279,38 +247,9 @@ class MusicAPIService:
             self.logger.error(f"获取请求数据失败: {e}")
             return {}
 
-    # 辅助方法：生成空结果
-    def get_empty_result(self) -> dict:
-        return {
-            "exists": False,
-            "album": "",
-            "artists": "",
-            "file_type": "",
-            "file_size": 0,
-            "file_size_formatted": "",
-            "is_mp3": False
-        }
 
-    def navidrome_status(self, name: str, artists: str, album: str) -> dict:
-        """查询单曲在 Navidrome 库内的存在性，统一收敛各路由的重复逻辑。
-
-        未启用 Navidrome 或查询异常时，返回与正常结果同构的空字典，保证响应格式一致。
-        """
-        if self.use_navidrome and self.navidrome:
-            try:
-                return self.navidrome.navidrome_song_exists(name, artists, album)
-            except Exception as e:
-                self.logger.error(f"Navidrome 检查失败: {e}")
-        return self.get_empty_result()
-
-
-
-
-    
-    
-    
 # 创建Flask应用和服务实例
-user_config=Config()
+user_config = Config()
 # 显式指定 static/templates 绝对路径，避免 Docker 中工作目录差异导致 CSS/JS 加载失败
 current_dir = Path(__file__).parent
 app = Flask(__name__,
@@ -335,11 +274,6 @@ def _parse_allowed_origins(raw: str) -> frozenset:
 # 来源白名单启动时解析一次，避免每个请求都重复 split + urlparse（before_request 是热路径）
 ALLOWED_ORIGINS = _parse_allowed_origins(user_config.allowed_origins)
 
-# 使用统计：当期去重访问 IP + 下载歌曲数，每日 20:00 由 Bark 推送
-stats_tracker = StatsTracker(user_config.stats_file)
-# 这些路径不计入“使用人数”（探活/静态资源/纯信息接口）
-STATS_IGNORE_PATHS = {"/health", "/favicon.ico", "/api/info", "/api/stats"}
-
 
 def _client_ip() -> str:
     """获取真实客户端 IP：优先 X-Forwarded-For 首跳（站点走了反代），否则 remote_addr。"""
@@ -348,12 +282,12 @@ def _client_ip() -> str:
         return xff.split(',')[0].strip()
     return request.remote_addr or ''
 
-# 初始化频率限制器（关键补充）
+
+# 初始化频率限制器
 limiter = Limiter(
     # 基于“真实客户端 IP”限流。站点在反向代理后面，request.remote_addr 是代理的 IP，
     # 若用它做 key，会把所有访客算到同一个 IP 上、共用同一个限流桶——只要全站累计请求
-    # 超过 200/hour 或某路由的分钟限额，所有人（无论解析单曲还是歌单）都会被 429。
-    # 这里复用与统计一致的 _client_ip（取 X-Forwarded-For 首跳），让每个访客各自独立计数。
+    # 超过限额，所有人都会被 429。这里用 _client_ip（取 X-Forwarded-For 首跳），让每个访客各自独立计数。
     _client_ip,
     app=app,
     default_limits=[user_config.rate_limit],  # 使用配置中的频率限制（如"200/hour"）
@@ -390,7 +324,6 @@ def before_request():
         return None
 
     # 3. 验证请求来源（白名单已在启动时解析为 ALLOWED_ORIGINS，此处直接复用）
-    # 3.2 获取请求的Referer和Origin（同样去除协议）
     referer = request.headers.get('Referer', '')
     origin = request.headers.get('Origin', '')
 
@@ -430,8 +363,8 @@ def before_request():
     api_key = request.headers.get("X-API-Key") or request.args.get("api_key")
     if not api_key or api_key != user_config.api_key:
         return APIResponse.error(
-            "未授权访问：请通过官方网页使用，或提供有效的API密钥", 
-            status_code=401, 
+            "未授权访问：请通过官方网页使用，或提供有效的API密钥",
+            status_code=401,
             error_code="Unauthorized"
         )
 
@@ -440,22 +373,11 @@ def before_request():
 def after_request(response: Response) -> Response:
     """请求后处理 - 设置CORS头"""
     response.headers.add('Access-Control-Allow-Origin', user_config.cors_origins)
-    # 补充允许X-API-Key头（关键修改）
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-API-Key')
     response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
     response.headers.add('Access-Control-Max-Age', '3600')
-
-    # 统计“使用人数”：仅记录成功(<400)且非探活/静态的请求来源 IP（去重）
-    try:
-        path = request.path
-        if (response.status_code < 400
-                and path not in STATS_IGNORE_PATHS
-                and not path.startswith('/static')):
-            stats_tracker.record_visit(_client_ip())
-    except Exception as e:
-        api_service.logger.debug(f"记录访问统计失败(忽略): {e}")
-
     return response
+
 
 @app.errorhandler(400)
 def handle_bad_request(e):
@@ -475,61 +397,48 @@ def handle_internal_error(e):
     api_service.logger.error(f"服务器内部错误: {e}")
     return APIResponse.error("服务器内部错误", 500)
 
+
 @app.route('/')
 def index():
     # 将版本号传递到模板
     return render_template("index.html", app_version=APP_VERSION)
 
+
 @app.route('/api/check-password', methods=['GET'])
-@limiter.limit("30/minute")  # 每分钟最多30次请求
+@limiter.limit("30/minute")
 def check_password() -> str:
     # 获取用户输入的密码
     user_password = request.args.get('password', '')
-    
-    # 从环境变量获取正确密码
+    # 从配置获取正确密码
     qr_password = user_config.qr_password
-    
     # 验证密码
     if user_password.strip() == str(qr_password).strip():
-        return jsonify({
-            'success': True,
-            'message': '密码验证成功'
-        })
-    else:
-        return jsonify({
-            'success': False,
-            'message': '密码错误'
-        })
+        return jsonify({'success': True, 'message': '密码验证成功'})
+    return jsonify({'success': False, 'message': '密码错误'})
 
 
 @app.route('/health', methods=['GET'])
-@limiter.limit("10/minute")  # 每分钟最多10次请求
+@limiter.limit("10/minute")
 def health_check():
     """健康检查API"""
     try:
-        # 检查Cookie状态
         cookie_status = api_service.cookie_manager.is_cookie_valid()
-        
         health_info = {
             'service': 'running',
-            'timestamp': int(time.time()) if 'time' in sys.modules else None,
+            'timestamp': int(time.time()),
             'cookie_status': 'valid' if cookie_status else 'invalid',
-            'downloads_dir': str(api_service.downloads_path.absolute()),
-            'version': '2.0.0'
+            'version': APP_VERSION,
         }
-        
         return APIResponse.success(health_info, "API服务运行正常")
-        
     except Exception as e:
         api_service.logger.error(f"健康检查失败: {e}")
         return APIResponse.error(f"健康检查失败: {str(e)}", 500)
 
 
 @app.route('/song', methods=['GET', 'POST'])
-@app.route('/Song_V1', methods=['GET', 'POST'])  # 向后兼容
-@limiter.limit("60/minute")  # 每分钟最多30次请求
+@limiter.limit("60/minute")
 def get_song_info():
-    """获取歌曲信息API"""
+    """获取歌曲信息API（type: url/name/lyric/json）"""
     try:
         # 获取请求参数
         data = api_service._safe_get_request_data()
@@ -537,25 +446,25 @@ def get_song_info():
         url = data.get('url')
         level = data.get('level', 'lossless')
         info_type = data.get('type', 'url')
-        
+
         # 参数验证
         if not song_ids and not url:
             return APIResponse.error("必须提供 'ids'、'id' 或 'url' 参数")
-        
+
         # 提取音乐ID
         music_id = api_service._extract_music_id(song_ids or url)
-        
+
         # 验证音质参数
         if level not in VALID_QUALITIES:
             return APIResponse.error(f"无效的音质参数，支持: {', '.join(VALID_QUALITIES)}")
-        
+
         # 验证类型参数
         valid_types = ['url', 'name', 'lyric', 'json']
         if info_type not in valid_types:
             return APIResponse.error(f"无效的类型参数，支持: {', '.join(valid_types)}")
-        
+
         cookies = api_service._get_cookies()
-        
+
         # 根据类型获取不同信息
         if info_type == 'url':
             result = url_v1(music_id, level, cookies)
@@ -572,40 +481,29 @@ def get_song_info():
                     'type': song_data.get('type'),
                     'bitrate': song_data.get('br')
                 }
-                # 标注 Navidrome 状态（尝试通过歌曲详情获取名称/艺人/专辑）
-                song_detail = name_v1(music_id)
-                if song_detail and song_detail.get('songs'):
-                    sd = song_detail['songs'][0]
-                    artists_str = '/'.join(a['name'] for a in sd.get('ar', []))
-                    album_name = sd.get('al', {}).get('name', '')
-                    response_data['in_navidrome'] = api_service.navidrome_status(
-                        sd.get('name', ''), artists_str, album_name
-                    )
-                else:
-                    response_data['in_navidrome'] = api_service.get_empty_result()
                 return APIResponse.success(response_data, "获取歌曲URL成功")
             else:
                 return APIResponse.error("获取音乐URL失败，可能是版权限制或音质不支持", 404)
-        
+
         elif info_type == 'name':
             result = name_v1(music_id)
             return APIResponse.success(result, "获取歌曲信息成功")
-        
+
         elif info_type == 'lyric':
             result = lyric_v1(music_id, cookies)
             return APIResponse.success(result, "获取歌词成功")
-        
+
         elif info_type == 'json':
             # 获取完整的歌曲信息（用于前端解析）
             song_info = name_v1(music_id)
             url_info = url_v1(music_id, level, cookies)
             lyric_info = lyric_v1(music_id, cookies)
-            
+
             if not song_info or 'songs' not in song_info or not song_info['songs']:
                 return APIResponse.error("未找到歌曲信息", 404)
-            
+
             song_data = song_info['songs'][0]
-            
+
             # 构建前端期望的响应格式
             response_data = {
                 'id': music_id,
@@ -619,12 +517,6 @@ def get_song_info():
                 'tlyric': lyric_info.get('tlyric', {}).get('lyric', '') if lyric_info else ''
             }
 
-            # 标注 Navidrome 状态（复用上方已获取的 song_data，避免重复请求 name_v1）
-            artists_str = '/'.join(a['name'] for a in song_data.get('ar', []))
-            response_data['in_navidrome'] = api_service.navidrome_status(
-                song_data.get('name', ''), artists_str, song_data.get('al', {}).get('name', '')
-            )
-
             # 添加URL和大小信息
             if url_info and url_info.get('data') and len(url_info['data']) > 0:
                 url_data = url_info['data'][0]
@@ -634,12 +526,9 @@ def get_song_info():
                     'level': url_data.get('level', level)
                 })
             else:
-                response_data.update({
-                    'url': '',
-                    'size': '获取失败'
-                })
+                response_data.update({'url': '', 'size': '获取失败'})
             return APIResponse.success(response_data, "获取歌曲URL成功")
-            
+
     except APIException as e:
         api_service.logger.error(f"API调用失败: {e}")
         return APIResponse.error(f"API调用失败: {str(e)}", 500)
@@ -647,276 +536,103 @@ def get_song_info():
         api_service.logger.error(f"获取歌曲信息异常: {e}\n{traceback.format_exc()}")
         return APIResponse.error(f"服务器错误: {str(e)}", 500)
 
+
 @app.route('/song/detail', methods=['GET', 'POST'])
-@limiter.limit("60/minute")  # 每分钟最多30次请求
+@limiter.limit("60/minute")
 def song_detail_api():
-    """获取歌曲详情接口（需有效Cookie才能访问）"""
+    """获取歌曲详情接口（前端下载核心，需有效Cookie才能访问）"""
     try:
-        # 1. 【核心逻辑】先判断Cookie有效性，无效直接返回
+        # 1. 先判断Cookie有效性，无效直接返回
         cookies = api_service._get_cookies()
         try:
-            # 调用Cookie有效性检查方法
             is_cookie_valid = api_service.netease_api.is_cookie_valid(cookies)
         except Exception as e:
             api_service.logger.error(f"Cookie有效性检查异常: {e}")
             return APIResponse.error("Cookie验证失败，请重试", 500)
-        
-        # 若Cookie无效，直接返回错误
-        if not is_cookie_valid:
-            return APIResponse.error("Cookie无效或已过期，请重新登录", 401)  # 401表示未授权
-        
-        # 3. 仅当Cookie有效时，才执行后续逻辑
 
-         # 1. 获取并验证请求参数
-        # 获取请求参数
+        if not is_cookie_valid:
+            return APIResponse.error("Cookie无效或已过期，请重新登录", 401)
+
+        # 2. 获取并验证请求参数
         data = api_service._safe_get_request_data()
         music_id = data.get('id')
         quality = data.get('quality', 'lossless')
-        return_format = data.get('format', 'file')  # file 或 json
-        
-        # 参数验证
+
         validation_error = api_service._validate_request_params({'music_id': music_id})
         if validation_error:
             return validation_error
-        
-        # 验证音质参数
+
         if quality not in VALID_QUALITIES:
             return APIResponse.error(f"无效的音质参数，支持: {', '.join(VALID_QUALITIES)}")
-        
-        # 验证返回格式
-        if return_format not in ['file', 'json']:
-            return APIResponse.error("返回格式只支持 'file' 或 'json'")
 
-        # 解析单曲完整信息（与 /download 共用核心逻辑）
+        # 3. 解析单曲完整信息（含下载直链，浏览器据此直接下载）
         music_info, error = api_service.resolve_song_info(music_id, quality, cookies)
         if error:
             return error
 
         return APIResponse.success(music_info, "歌曲详情获取成功")
-        
+
     except Exception as e:
         api_service.logger.error(f"获取歌曲详情异常: {e}\n{traceback.format_exc()}")
         return APIResponse.error(f"获取歌曲详情失败: {str(e)}", 500)
-    
-
-@app.route('/search', methods=['GET', 'POST'])
-@app.route('/Search', methods=['GET', 'POST'])  # 向后兼容
-@limiter.limit("30/minute")  # 每分钟最多30次请求
-def search_music_api():
-    """搜索音乐API"""
-    try:
-        # 获取请求参数
-        data = api_service._safe_get_request_data()
-        keyword = data.get('keyword') or data.get('keywords') or data.get('q')
-        limit = int(data.get('limit', 30))
-        offset = int(data.get('offset', 0))
-        search_type = data.get('type', '1')  # 1-歌曲, 10-专辑, 100-歌手, 1000-歌单
-        
-        # 参数验证
-        validation_error = api_service._validate_request_params({'keyword': keyword})
-        if validation_error:
-            return validation_error
-        
-        # 限制搜索数量
-        if limit > 100:
-            limit = 100
-        
-        cookies = api_service._get_cookies()
-        result = search_music(keyword, cookies, limit)
-        
-        # search_music返回的是歌曲列表，需要包装成前端期望的格式
-        if result:
-            for song in result:
-                # 统一艺术家字段格式（确保为字符串）
-                if 'artists' in song and isinstance(song['artists'], list):
-                    song['artist_string'] = '/'.join(artist.get('name', '') for artist in song['artists'])
-                else:
-                    song['artist_string'] = song.get('artists', '')  # 直接使用字符串
-                # 标注 Navidrome 库内存在性（未启用/异常时返回空结果字典）
-                song['in_navidrome'] = api_service.navidrome_status(
-                    song.get('name', ''), song['artist_string'], song.get('album', '')
-                )
-
-        return APIResponse.success(result, "搜索完成")
-        
-    except ValueError as e:
-        return APIResponse.error(f"参数格式错误: {str(e)}")
-    except Exception as e:
-        api_service.logger.error(f"搜索音乐异常: {e}\n{traceback.format_exc()}")
-        return APIResponse.error(f"搜索失败: {str(e)}", 500)
 
 
 @app.route('/playlist', methods=['GET', 'POST'])
-@app.route('/Playlist', methods=['GET', 'POST'])  # 向后兼容
-@limiter.limit("30/minute")  # 每分钟最多30次请求
+@limiter.limit("30/minute")
 def get_playlist():
     """获取歌单详情API"""
     try:
-        # 获取请求参数
         data = api_service._safe_get_request_data()
         playlist_id = data.get('id')
-        
-        # 参数验证
+
         validation_error = api_service._validate_request_params({'playlist_id': playlist_id})
         if validation_error:
             return validation_error
-        
-        cookies = api_service._get_cookies()
-        #result2 = user_playlist(4912185576, cookies)
-        result = playlist_detail(playlist_id, cookies)
 
-        # 为歌单中的每首歌标注是否在 Navidrome 库内
-        for track in result.get('tracks', []):
-            artists_str = '/'.join(artist.get('name', '') for artist in track.get('ar', []))
-            track['in_navidrome'] = api_service.navidrome_status(
-                track.get('name', ''), artists_str, track.get('al', {}).get('name', '')
-            )
+        cookies = api_service._get_cookies()
+        result = playlist_detail(playlist_id, cookies)
 
         # 适配前端期望的响应格式
         response_data = {
             'status': 'success',
             'playlist': result
         }
-        
         return APIResponse.success(response_data, "获取歌单详情成功")
-        
+
     except Exception as e:
         api_service.logger.error(f"获取歌单异常: {e}\n{traceback.format_exc()}")
         return APIResponse.error(f"获取歌单失败: {str(e)}", 500)
 
 
 @app.route('/album', methods=['GET', 'POST'])
-@app.route('/Album', methods=['GET', 'POST'])  # 向后兼容
-@limiter.limit("30/minute")  # 每分钟最多30次请求
+@limiter.limit("30/minute")
 def get_album():
     """获取专辑详情API"""
     try:
-        # 获取请求参数
         data = api_service._safe_get_request_data()
         album_id = data.get('id')
-        
-        # 参数验证
+
         validation_error = api_service._validate_request_params({'album_id': album_id})
         if validation_error:
             return validation_error
-        
+
         cookies = api_service._get_cookies()
         result = album_detail(album_id, cookies)
-        
-        # 为专辑中的每首歌标注是否在 Navidrome 库内（统一用专辑整体名称作为匹配条件）
-        album_name = result.get('name', '')
-        for song in result.get('songs', []):
-            artists_str = '/'.join(artist.get('name', '') for artist in song.get('ar', []))
-            song['in_navidrome'] = api_service.navidrome_status(
-                song.get('name', ''), artists_str, album_name
-            )
 
         # 适配前端期望的响应格式
         response_data = {
             'status': 200,
             'album': result
         }
-        
         return APIResponse.success(response_data, "获取专辑详情成功")
-        
+
     except Exception as e:
         api_service.logger.error(f"获取专辑异常: {e}\n{traceback.format_exc()}")
         return APIResponse.error(f"获取专辑失败: {str(e)}", 500)
 
 
-@app.route('/download', methods=['GET', 'POST'])
-@app.route('/Download', methods=['GET', 'POST'])  # 向后兼容
-@limiter.limit("30/minute")  # 每分钟最多30次下载
-def download_music_api():
-    """下载音乐API"""
-    try:
-        # 获取请求参数
-        data = api_service._safe_get_request_data()
-        music_id = data.get('id')
-        quality = data.get('quality', 'lossless')
-        return_format = data.get('format', 'file')  # file 或 json
-        
-        # 参数验证
-        validation_error = api_service._validate_request_params({'music_id': music_id})
-        if validation_error:
-            return validation_error
-        
-        # 验证音质参数
-        if quality not in VALID_QUALITIES:
-            return APIResponse.error(f"无效的音质参数，支持: {', '.join(VALID_QUALITIES)}")
-        
-        # 验证返回格式
-        if return_format not in ['file', 'json']:
-            return APIResponse.error("返回格式只支持 'file' 或 'json'")
-        
-        cookies = api_service._get_cookies()
-
-        # 解析单曲完整信息（与 /song/detail 共用核心逻辑）
-        music_info, error = api_service.resolve_song_info(music_id, quality, cookies)
-        if error:
-            return error
-        music_id = music_info['id']
-        filename = music_info['filename']
-
-        # 【核心修改】删除本地文件检查逻辑，改为内存下载
-        try:
-            # 转为 MusicInfo 并下载到内存（本项目不写入任何标签/元信息）
-            m_info=api_service.downloader.convert_to_music_info(music_info)
-            success, audio_data, _ = api_service.downloader.download_music_to_memory(m_info, quality)
-            if not success:
-                return APIResponse.error("下载失败: 内存传输异常", 500)
-            stats_tracker.record_download()  # 下载成功，下载歌曲数 +1
-        except DownloadException as e:
-            api_service.logger.error(f"下载异常: {e}")
-            return APIResponse.error(f"下载失败: {str(e)}", 500)
-        
-        # 根据返回格式返回结果
-        if return_format == 'json':
-            response_data = {
-                'music_id': music_id,
-                'name': music_info['name'],
-                'artist': music_info['artist_string'],
-                'album': music_info['album'],
-                'quality': quality,
-                'quality_name': api_service._get_quality_display_name(quality),
-                'file_type': music_info['file_type'],
-                'file_size': music_info['file_size'],
-                'file_size_formatted': api_service._format_file_size(music_info['file_size']),
-                # 【删除本地文件路径】不再返回服务器文件路径
-                'filename': filename,
-                'duration': music_info['duration'],
-                'publishTime': music_info['publishTime']
-            }
-            return APIResponse.success(response_data, "下载完成")
-        else:
-             # 【核心修改】从内存数据流发送文件，而非本地路径
-            try:
-                # 确保数据流指针在开头
-                audio_data.seek(0)
-                
-                response = send_file(
-                    audio_data,  # 内存中的数据流
-                    as_attachment=True,  # 强制浏览器下载
-                    download_name=filename,
-                    mimetype=f"audio/{music_info['file_type']}"
-                )
-                # 保持原有自定义头信息
-                response.headers['X-Download-Message'] = 'Download completed successfully'
-                response.headers['X-Download-Filename'] = quote(filename, safe='')
-                # 增强中文文件名兼容性
-                response.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename)}"
-                return response
-            except Exception as e:
-                api_service.logger.error(f"发送文件失败: {e}")
-                return APIResponse.error(f"文件发送失败: {str(e)}", 500)
-            
-    except Exception as e:
-        api_service.logger.error(f"下载音乐异常: {e}\n{traceback.format_exc()}")
-        return APIResponse.error(f"下载异常: {str(e)}", 500)
-
-# 新增：二维码登录相关接口
 @app.route('/api/qr/generate', methods=['GET'])
-@limiter.limit("5/minute")  # 每分钟最多5次请求
+@limiter.limit("5/minute")
 def generate_qr():
     """生成登录二维码"""
     try:
@@ -931,23 +647,23 @@ def generate_qr():
 
 
 @app.route('/api/qr/check', methods=['GET'])
-@limiter.limit("10/minute")  # 每分钟最多10次请求
+@limiter.limit("10/minute")
 def check_qr_status():
     """检查二维码登录状态"""
     try:
         qr_key = request.args.get('qr_key')
         if not qr_key:
             return APIResponse.error("缺少qr_key参数", 400)
-        
+
         result = api_service.qr_manager.check_login_status(qr_key)
         if result['success']:
             # 如果登录成功，保存cookie
             if result.get('status_code') == 803 and 'cookie' in result:
                 try:
-                    res_cookie=result['cookie']
-                    qr_parse_cookie=api_service.cookie_manager.get_qr_cookie(res_cookie)
+                    res_cookie = result['cookie']
+                    qr_parse_cookie = api_service.cookie_manager.get_qr_cookie(res_cookie)
                     cookie_status = api_service.netease_api.is_cookie_valid(qr_parse_cookie)
-                    is_vip=cookie_status.get('is_vip',False)
+                    is_vip = cookie_status.get('is_vip', False)
                     result['is_vip'] = is_vip
 
                     # 仅当是VIP时才更新cookie
@@ -959,122 +675,48 @@ def check_qr_status():
                 except Exception as e:
                     api_service.logger.warning(f"保存cookie失败: {e}")
                     result['is_vip'] = False
-            
+
             return APIResponse.success(result, "检查二维码状态成功")
         else:
             return APIResponse.error(result['message'], 500)
     except Exception as e:
         api_service.logger.error(f"检查二维码状态异常: {e}")
         return APIResponse.error(f"检查二维码状态失败: {str(e)}", 500)
-    
+
+
 @app.route('/api/check-cookie', methods=['GET'])
-@limiter.limit("10/minute")  # 每分钟最多10次请求
+@limiter.limit("10/minute")
 def check_cookie():
     """检查Cookie是否有效及VIP状态"""
     try:
         cookies = api_service._get_cookies()
-        # 现在返回的是包含 'valid' 和 'is_vip' 的字典
         cookie_result = api_service.netease_api.is_cookie_valid(cookies)
-        
-        # 同时返回有效性和VIP状态
         return APIResponse.success(
-            {
-                "valid": cookie_result['valid'],
-                "is_vip": cookie_result['is_vip']
-            }, 
+            {"valid": cookie_result['valid'], "is_vip": cookie_result['is_vip']},
             "Cookie状态检查成功"
         )
     except Exception as e:
         api_service.logger.error(f"检查Cookie状态异常: {e}")
         return APIResponse.error(f"检查Cookie状态失败: {str(e)}", 500)
 
-@app.route('/api/info', methods=['GET'])
-@limiter.limit("10/minute")  # 每分钟最多10次请求
-def api_info():
-    """API信息接口"""
-    try:
-        info = {
-            'name': '网易云音乐API服务',
-            'version': '2.0.0',
-            'description': '提供网易云音乐相关API服务',
-            'endpoints': {
-                '/health': 'GET - 健康检查',
-                '/song': 'GET/POST - 获取歌曲信息',
-                '/search': 'GET/POST - 搜索音乐',
-                '/playlist': 'GET/POST - 获取歌单详情',
-                '/album': 'GET/POST - 获取专辑详情',
-                '/download': 'GET/POST - 下载音乐',
-                '/api/info': 'GET - API信息'
-            },
-            'supported_qualities': [
-                'standard', 'exhigh', 'lossless', 
-                'hires', 'sky', 'jyeffect', 'jymaster'
-            ],
-            'config': {
-                'downloads_dir': str(api_service.downloads_path.absolute()),
-                'max_file_size': f"{user_config.max_file_size // (1024*1024)}MB",
-                'request_timeout': f"{user_config.request_timeout}s"
-            }
-        }
-        
-        return APIResponse.success(info, "API信息获取成功")
-        
-    except Exception as e:
-        api_service.logger.error(f"获取API信息异常: {e}")
-        return APIResponse.error(f"获取API信息失败: {str(e)}", 500)
-
-
-@app.route('/api/stats', methods=['GET'])
-@limiter.limit("30/minute")
-def api_stats():
-    """查看当期使用统计（去重访问IP数 + 下载歌曲数 + 累计下载）。"""
-    try:
-        return APIResponse.success(stats_tracker.snapshot(), "统计获取成功")
-    except Exception as e:
-        api_service.logger.error(f"获取统计异常: {e}")
-        return APIResponse.error(f"获取统计失败: {str(e)}", 500)
-
 
 def start_api_server():
     """启动API服务器"""
     try:
-        print("\n" + "="*60)
-        print("🚀 网易云音乐API服务启动中...")
-        print("="*60)
-        print(f"📡 服务地址: http://{user_config.web_host}:{user_config.web_port}")
-        print(f"📁 下载目录: {api_service.downloads_path.absolute()}")
-        print(f"📋 日志级别: {user_config.log_level}")
-        print("\n📚 API端点:")
-        print(f"  ├─ GET  /health        - 健康检查")
-        print(f"  ├─ POST /song          - 获取歌曲信息")
-        print(f"  ├─ POST /search        - 搜索音乐")
-        print(f"  ├─ POST /playlist      - 获取歌单详情")
-        print(f"  ├─ POST /album         - 获取专辑详情")
-        print(f"  ├─ POST /download      - 下载音乐")
-        print(f"  └─ GET  /api/info      - API信息")
-        print("\n🎵 支持的音质:")
-        print(f"  standard, exhigh, lossless, hires, sky, jyeffect, jymaster")
-        print("="*60)
-        print(f"⏰ 启动时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-        print("🌟 服务已就绪，等待请求...\n")
         # 初始化日志
         level = user_config.get("LEVEL", "INFO")
-        # 用 getattr 替代 logging.getLevelName，获取日志级别常量
-        log_level = getattr(logging, level, logging.INFO)  # 若级别无效，默认使用 INFO
+        log_level = getattr(logging, str(level).upper(), logging.INFO)
+        if not isinstance(log_level, int):
+            log_level = logging.INFO
         setup_logger(log_level)
 
-        # 启动每日 Bark 统计推送（仅在配置开启时）
-        # 注意：debug=True 时 Werkzeug reloader 会以父/子两个进程运行本函数，
-        # 后台线程必须只在真正的服务进程启动一次，否则会重复启动导致每日推送两条。
-        is_serving_process = (not user_config.debug) or os.environ.get('WERKZEUG_RUN_MAIN') == 'true'
-        if user_config.use_bark and is_serving_process:
-            try:
-                hh, mm = (user_config.bark_time.split(':') + ['0'])[:2]
-                start_daily_notifier(stats_tracker, lambda: user_config.bark_url, int(hh), int(mm))
-            except Exception as e:
-                logging.error(f"启动 Bark 每日推送失败: {e}")
-        elif not user_config.use_bark and is_serving_process:
-            logging.info("未启用 Bark 推送（BARK.USE_BARK=false），仅在 /api/stats 提供统计查询")
+        print("\n" + "=" * 60)
+        print("🚀 网易云音乐解析下载服务启动中...")
+        print("=" * 60)
+        print(f"📡 服务地址: http://{user_config.web_host}:{user_config.web_port}")
+        print(f"📋 日志级别: {level}")
+        print(f"⏰ 启动时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print("🌟 服务已就绪，等待请求...\n")
 
         # 启动Flask应用
         app.run(
@@ -1083,7 +725,7 @@ def start_api_server():
             debug=user_config.debug,
             threaded=True
         )
-        
+
     except KeyboardInterrupt:
         print("\n\n👋 服务已停止")
     except Exception as e:
