@@ -1,23 +1,31 @@
-LICENSE
-README.md
-.gitignore
-*.log
-# 虚拟环境
+# 版本库与虚拟环境（体积大，绝不进构建上下文）
+.git/
+.github/
+.venv/
 venv/
 env/
 
-# 本地日志和下载文件（通过volume映射，无需打包）
+# 文档与本地工具配置
+LICENSE
+README.md
+CLAUDE.md
+.gitignore
+.vscode/
+.claude/
+
+# 本地日志与下载（通过 volume 映射，无需打包）
+*.log
 logs/
 downloads/
-.vscode/
 
-# 其他临时文件
+# 编译产物与临时文件
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .DS_Store
-# 排除根目录的config.yaml
+
+# 本地运行配置与仅文档用的截图
 config.yaml
 web1.png
 web2.png
