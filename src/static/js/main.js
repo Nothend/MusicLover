@@ -690,7 +690,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             
             const level = document.getElementById('quality-select').value;
             const xhr = new XMLHttpRequest();
-            xhr.open('POST', '/Song_V1', true);
+            xhr.open('POST', '/song', true);
             xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
             
             xhr.onload = function() {
@@ -711,26 +711,11 @@ document.addEventListener('DOMContentLoaded', async function() {
                             document.getElementById('download_id').value = id;
                             document.getElementById('download_quality').value = level;
 
-                            const navInfo = data.data.in_navidrome || {};
-                            const titleWithFlag = navInfo.exists 
-                                ? `${data.data.name} <span style="color: #f44336; font-size: 0.8rem; margin-left: 5px;">已在库中</span>`
-                                : data.data.name;
-                            document.getElementById('single-song-title').innerHTML = titleWithFlag;
-
-                            let navDetails = '';
-                            if (navInfo.exists) {
-                                navDetails = `<span style="font-size: 0.8rem; margin-left: 5px; background: #e3f2fd; padding: 2px 6px; border-radius: 3px; color: #666;">[库内: ${navInfo.artists || '未知'} - ${navInfo.album || '未知'}]</span>`;
-                            }
-                            document.getElementById('single-song-artist').innerHTML = `${data.data.ar_name} ${navDetails}`;
-
+                            document.getElementById('single-song-title').textContent = data.data.name;
+                            document.getElementById('single-song-artist').textContent = data.data.ar_name;
                             document.getElementById('single-album').textContent = data.data.al_name;
                             document.getElementById('single-duration').textContent = formatDuration(data.data.duration);
-
-                            const qualityText = getQualityText(data.data.level);
-                            const qualityWithMP3 = navInfo.is_mp3 
-                                ? `${qualityText} <span style="color: #f44336; font-size: 0.8rem;">MP3</span>`
-                                : qualityText;
-                            document.getElementById('single-quality').innerHTML = qualityWithMP3;
+                            document.getElementById('single-quality').textContent = getQualityText(data.data.level);
 
                             document.getElementById('single-size').textContent = data.data.size || '未知';
                             showBigPicBtn.setAttribute('data-pic', data.data.pic);
@@ -811,16 +796,6 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         currentSongs.forEach(function(song, idx) {
             const actualIndex = startIndex + idx + 1;
-            const navInfo = song.in_navidrome || {};
-            let navBadges = '';
-            
-            if (navInfo.exists) {
-                navBadges += '<span class="badge badge-success">库内</span>';
-                if (navInfo.is_mp3) {
-                    navBadges += '<span class="badge badge-warning">MP3</span>';
-                }
-            }
-            
             const songName = song.name || song.songName || '未知歌曲';
             const artists = song.artists || song.ar_name || '未知歌手';
             const album = song.album || song.albumName || '未知专辑';
@@ -839,7 +814,6 @@ document.addEventListener('DOMContentLoaded', async function() {
                         <span style="font-size: 0.9rem; color: #666; margin-left: 5px;">
                             [${artists} - ${album}]
                         </span>
-                        ${navBadges}
                         <span class="download-status"></span>
                     </div>
                     <div class="song-progress">
@@ -906,7 +880,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         button.innerHTML = '<span class="loading"></span> 解析中...';
 
         const xhr = new XMLHttpRequest();
-        xhr.open('GET', `/Playlist?id=${encodeURIComponent(id)}`, true);
+        xhr.open('GET', `/playlist?id=${encodeURIComponent(id)}`, true);
         
         xhr.onload = function() {
             button.disabled = false;
@@ -971,7 +945,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         button.innerHTML = '<span class="loading"></span> 解析中...';
 
         const xhr = new XMLHttpRequest();
-        xhr.open('GET', `/Album?id=${encodeURIComponent(id)}`, true);
+        xhr.open('GET', `/album?id=${encodeURIComponent(id)}`, true);
         
         xhr.onload = function() {
             button.disabled = false;

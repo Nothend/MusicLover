@@ -44,8 +44,8 @@ ARG APP_VERSION=unknown
 ENV APP_VERSION=$APP_VERSION
 
 # 创建所需目录
-RUN mkdir -p /app/logs /app/downloads /app/src \
-    && chmod 755 /app/logs /app/downloads  
+RUN mkdir -p /app/logs /app/src \
+    && chmod 755 /app/logs
 
 # 设置工作目录
 WORKDIR /app

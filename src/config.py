@@ -62,26 +62,13 @@ class Config:
             'web_port': '5151',
             'debug': False,
             'QR_PASSWORD': '1234',
-            'downloads_dir': 'downloads',
-            'max_file_size': 524288000,  # 500MB
-            'request_timeout': 30,
-            'log_level': 'INFO',
             'cors_origins': '*',
             'API_KEY': '9527',  # 替换为你的API密钥
-            'RATE_LIMIT': '200/hour',  # 每小时最多100次请求（可调整）
+            'RATE_LIMIT': '200/hour',  # 每小时最多200次请求（可调整）
             'RATE_LIMIT_STORAGE': 'memory://',  # 频率限制存储后端，生产多进程可设为 redis://host:6379
             'IP_WHITELIST': ["127.0.0.1", "192.168.1.0/24"],  # 信任的IP白名单
-            'PROTECTED_ENDPOINTS': [  # 需要保护的接口路径
-                    "/song", "/search", "/playlist", "/album", 
-                    "/download", "/api/qr", "/song/detail"
-                ],
-            'PUBLIC_ENDPOINTS': ["/health", "/api/info", "/"],  # 公开接口（无需保护）
+            'PUBLIC_ENDPOINTS': ["/health", "/"],  # 公开接口（无需保护）
             'ALLOWED_ORIGINS': 'http://localhost:5151',
-            # 使用统计 + Bark 每日推送
-            'USE_BARK': False,
-            'BARK_URL': '',           # 形如 https://api.day.app/<your_key>
-            'BARK_TIME': '20:00',     # 每日推送时间（北京时间，HH:MM）
-            'STATS_FILE': '/app/logs/stats.json',  # 统计持久化路径（须在挂载卷内）
         }
         
     def load_config(self) -> None:
@@ -96,37 +83,6 @@ class Config:
         except Exception as e:
             logging.error(f"配置文件加载失败: {str(e)}")
             raise
-    def is_enabled(self, type: str) -> bool:
-        """
-        检查指定类型的配置是否启用（支持参数大小写混用）
-        :param type: 配置类型，支持'NAVIDROME'或'MYSQL'（大小写不限）
-        :return: 配置是否有效启用，符合条件返回True，否则返回False
-        """
-        # 将参数转换为全大写，统一判断标准
-        type_upper = type.upper()
-        
-        # 处理NAVIDROME类型检查
-        if type_upper == 'NAVIDROME':
-            # 检查是否存在NAVIDROME节点（配置中是大写节点）
-            nav_node = self.config.get('NAVIDROME')
-            if not nav_node:
-                return False
-            # 检查USE_NAVIDROME是否存在且为True
-            return nav_node.get('USE_NAVIDROME', False) is True
-        
-        # 处理MYSQL类型检查（配置中是小写mysql节点）
-        elif type_upper == 'MYSQL':
-            # 检查是否存在mysql节点
-            mysql_node = self.config.get('mysql')
-            if not mysql_node:
-                return False
-            # 检查USE_MYSQL是否存在且为True
-            return mysql_node.get('USE_MYSQL', False) is True
-        
-        # 其他类型返回False
-        else:
-            return False
-    
     def get(self, key: str, default: Any = None) -> Any:
         """获取一级配置项（兼容原有逻辑）"""
         return self.config.get(key, default)
@@ -203,34 +159,9 @@ class Config:
         return self.get_nested('WebSecurity.IP_WHITELIST', self._defaults['IP_WHITELIST'])
 
     @property
-    def protected_endpoints(self) -> list[str]:
-        """需要保护的API接口路径列表"""
-        return self.get_nested('WebSecurity.PROTECTED_ENDPOINTS', self._defaults['PROTECTED_ENDPOINTS'])
-
-    @property
     def public_endpoints(self) -> list[str]:
         """公开接口路径列表（无需验证）"""
         return self.get_nested('WebSecurity.PUBLIC_ENDPOINTS', self._defaults['PUBLIC_ENDPOINTS'])
-    
-    @property
-    def use_bark(self) -> bool:
-        """是否启用 Bark 每日统计推送。"""
-        return self.get_nested('BARK.USE_BARK', self._defaults['USE_BARK']) is True
-
-    @property
-    def bark_url(self) -> str:
-        """Bark 推送地址（含 key），形如 https://api.day.app/<your_key>。"""
-        return self.get_nested('BARK.BARK_URL', self._defaults['BARK_URL'])
-
-    @property
-    def bark_time(self) -> str:
-        """每日推送时间，北京时间 HH:MM。"""
-        return self.get_nested('BARK.BARK_TIME', self._defaults['BARK_TIME'])
-
-    @property
-    def stats_file(self) -> str:
-        """统计数据持久化文件路径（须落在挂载卷内以免重建容器丢失）。"""
-        return self.get_nested('BARK.STATS_FILE', self._defaults['STATS_FILE'])
 
     @property
     def qr_password(self) -> str:
@@ -247,23 +178,7 @@ class Config:
     @property
     def debug(self) -> bool:
         return self.get('debug', self._defaults['debug'])
-    
-    @property
-    def downloads_dir(self) -> str:
-        return self.get('downloads_dir', self._defaults['downloads_dir'])
-    
-    @property
-    def max_file_size(self) -> int:
-        return self.get('max_file_size', self._defaults['max_file_size'])
-    
-    @property
-    def request_timeout(self) -> int:
-        return self.get('request_timeout', self._defaults['request_timeout'])
-    
-    @property
-    def log_level(self) -> str:
-        return self.get('log_level', self._defaults['log_level'])
-    
+
     @property
     def cors_origins(self) -> str:
         return self.get('cors_origins', self._defaults['cors_origins'])
