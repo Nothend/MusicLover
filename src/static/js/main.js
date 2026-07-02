@@ -568,6 +568,50 @@ document.addEventListener('DOMContentLoaded', async function() {
      * @param {Function} [onDownloadComplete] - (可选) Safari模式下，下载确认/取消后的回调
      * @returns {Promise<boolean|Function|null>} 
      */
+    // 给下载好的音频写入元信息（标题/艺人/专辑/年份/音轨号/歌词/封面）。
+    // 字节已在浏览器内存里，写标签不额外占用服务端带宽；封面直接从网易图片 CDN 取（允许跨域）。
+    // flac/mp3 才处理，m4a 等或出错时原样返回。
+    async function tagAudioBlob(blob, info) {
+        try {
+            const fmt = (info.file_type || '').toLowerCase();
+            if (!window.AudioTagger || (fmt !== 'flac' && fmt !== 'mp3')) return blob;
+
+            let coverBytes = null, coverMime = '';
+            if (info.pic_url) {
+                try {
+                    let picUrl = info.pic_url;
+                    if (window.location.protocol === 'https:' && picUrl.startsWith('http://')) {
+                        picUrl = picUrl.replace('http://', 'https://'); // 避免 https 页面混合内容被拦
+                    }
+                    const cr = await fetch(picUrl);
+                    if (cr.ok) {
+                        coverBytes = new Uint8Array(await cr.arrayBuffer());
+                        coverMime = cr.headers.get('Content-Type') || 'image/jpeg';
+                    }
+                } catch (e) { console.warn('封面获取失败，跳过封面', e); }
+            }
+
+            const artists = Array.isArray(info.artists) && info.artists.length
+                ? info.artists
+                : (info.artist_string ? [info.artist_string] : []);
+            const audioBuf = await blob.arrayBuffer();
+            const tagged = window.AudioTagger.writeTags(audioBuf, fmt, {
+                title: info.name,
+                artists: artists,
+                album: info.album,
+                year: (info.publishTime || '').slice(0, 4),
+                trackNumber: info.track_number,
+                lyrics: info.lyric || '',
+                coverBytes: coverBytes,
+                coverMime: coverMime,
+            });
+            return new Blob([tagged], { type: blob.type });
+        } catch (e) {
+            console.warn('写入标签失败，保存原始文件', e);
+            return blob;
+        }
+    }
+
     async function clientDownloadSingleSong(songId, quality, songName, songItemEl, downloadContainer, onDownloadComplete) {
         const progressContainer = songItemEl.querySelector('.song-progress');
         progressContainer.style.display = 'block';
@@ -613,7 +657,10 @@ document.addEventListener('DOMContentLoaded', async function() {
                 progressBar.style.width = `${progress}%`;
             }
 
-            const blob = new Blob(chunks, { type: response.headers.get('Content-Type') });
+            let blob = new Blob(chunks, { type: response.headers.get('Content-Type') });
+
+            // 保存前写入元信息（flac/mp3；m4a 原样）
+            blob = await tagAudioBlob(blob, detailData.data);
 
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');

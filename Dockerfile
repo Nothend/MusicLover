@@ -12,12 +12,14 @@ ENV PATH="/venv/bin:$PATH"
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 复制源码并混淆前端 main.js（覆盖原文件，避免直接扒源码）
+# 复制源码并混淆前端 JS（覆盖原文件，避免直接扒源码）
 COPY src/ /app/src/
-RUN javascript-obfuscator /app/src/static/js/main.js \
-        --output /app/src/static/js/main.js \
-        --compact true \
-        --control-flow-flattening true
+RUN for f in main.js tagwriter.js; do \
+        javascript-obfuscator "/app/src/static/js/$f" \
+            --output "/app/src/static/js/$f" \
+            --compact true \
+            --control-flow-flattening true; \
+    done
 
 # ==================== 运行阶段：干净运行环境 ====================
 FROM python:3.12-alpine3.21
