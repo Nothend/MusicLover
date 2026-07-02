@@ -1,70 +1,48 @@
-# 构建阶段：安装依赖 + 混淆JS文件
+# ==================== 构建阶段：装依赖 + 混淆前端 JS ====================
 FROM python:3.12-alpine3.21 AS builder
-
-# 设置工作目录
 WORKDIR /app
 
-# 安装构建依赖（新增 Node.js 和 npm，用于混淆JS）
-RUN apk add --no-cache gcc musl-dev libffi-dev \
-    nodejs npm
-    # 新增：安装Node.js环境（支持JavaScript混淆工具）
+# 构建期依赖：编译部分 Python 包用的 C 工具链 + 混淆 JS 用的 Node（都只留在 builder 阶段）
+RUN apk add --no-cache gcc musl-dev libffi-dev nodejs npm \
+    && npm install -g javascript-obfuscator
 
-# 创建虚拟环境
+# 先装 Python 依赖：仅当 requirements.txt 变化时才让这层缓存失效
 RUN python -m venv /venv
 ENV PATH="/venv/bin:$PATH"
-
-# 复制依赖文件
 COPY requirements.txt .
-
-# 安装Python依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 新增：安装JavaScript混淆工具 javascript-obfuscator
-RUN npm install -g javascript-obfuscator
-
-# 复制应用代码（此时复制的是未混淆的源文件）
+# 复制源码并混淆前端 main.js（覆盖原文件，避免直接扒源码）
 COPY src/ /app/src/
-
-# 新增：对指定JS文件进行自动混淆（覆盖原文件）
-# 混淆 main.js
 RUN javascript-obfuscator /app/src/static/js/main.js \
-    --output /app/src/static/js/main.js \
-    --compact true \
-    --control-flow-flattening true
+        --output /app/src/static/js/main.js \
+        --compact true \
+        --control-flow-flattening true
 
-# 保留原逻辑：删除测试文件（可选，如果你不再需要test文件）
-RUN find /app/src/static/js -name "*test*" -delete
-
-
-# 最终阶段：运行环境（无需修改，直接使用builder阶段处理后的文件）
+# ==================== 运行阶段：干净运行环境 ====================
 FROM python:3.12-alpine3.21
+WORKDIR /app/src
 
-# 新增：接收构建参数作为环境变量
 ARG APP_VERSION=unknown
-ENV APP_VERSION=$APP_VERSION
+ENV APP_VERSION=$APP_VERSION \
+    PATH="/venv/bin:$PATH" \
+    PYTHONPATH="/app/src" \
+    PYTHONUNBUFFERED=1
 
-# 创建所需目录
-RUN mkdir -p /app/logs /app/src \
-    && chmod 755 /app/logs
+# 日志目录（未挂载卷时也需存在）
+RUN mkdir -p /app/logs
 
-# 设置工作目录
-WORKDIR /app
-
-# 从构建阶段复制虚拟环境和处理后的代码（包含混淆后的JS）
+# 仅拷贝运行所需：venv、（含混淆后 JS 的）源码、配置模板、入口脚本
 COPY --from=builder /venv /venv
 COPY --from=builder /app/src/ /app/src/
-
-# 复制唯一配置模板：未挂载 config.yaml 时由 config.py 自动拷贝为运行配置
 COPY config.sample.yaml /app/config.sample.yaml
-
-ENV PATH="/venv/bin:$PATH"
-
-# 复制入口脚本
-COPY entrypoint.sh /app/
+COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# 暴露端口
 EXPOSE 5151
 
-# 启动入口
+# 健康检查：探活公开的 /health（127.0.0.1 已在 IP 白名单内，不受来源校验影响）
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:5151/health >/dev/null 2>&1 || exit 1
+
 ENTRYPOINT ["/app/entrypoint.sh"]
